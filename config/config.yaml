@@ -1,0 +1,22 @@
+stock_universe:
+  - AAPL
+  - MSFT
+  - AMZN
+  - GOOGL
+  - META
+start_date: "2000-01-01"
+end_date: "2026-06-17"
+fred_series:
+  - DGS10
+  - DGS2
+  - VIXCLS
+  - GDP
+rebuild_on_run: false
+download:
+  max_workers: 4
+  retries: 3
+  retry_delay_seconds: 2
+  batch_size: 25
+logging:
+  level: INFO
+  file: logs/pipeline.log
