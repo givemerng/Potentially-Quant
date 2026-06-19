@@ -17,6 +17,11 @@ download:
   retries: 3
   retry_delay_seconds: 2
   batch_size: 25
+universe_filter:
+  min_market_cap_bn: 1.0          # exclude stocks with dollar-vol proxy < $1B
+  min_dollar_vol_percentile: 50   # exclude stocks below median daily dollar volume
+  ipo_exclusion_months: 12        # exclude stocks within 12 months of first price date
+  dollar_vol_lookback_days: 60    # trailing window for avg daily dollar volume
 logging:
   level: INFO
   file: logs/pipeline.log

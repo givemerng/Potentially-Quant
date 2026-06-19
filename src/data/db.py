@@ -4,7 +4,7 @@ import os
 from typing import Dict
 
 from dotenv import load_dotenv
-from sqlalchemy import Column, Date, Float, MetaData, String, Table, BigInteger, create_engine
+from sqlalchemy import Boolean, Column, Date, Float, MetaData, String, Table, BigInteger, create_engine
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.engine import Engine
 
@@ -30,6 +30,27 @@ macro_table = Table(
     Column("date", Date, primary_key=True, nullable=False),
     Column("series_name", String(64), primary_key=True, nullable=False),
     Column("value", Float),
+)
+
+returns_table = Table(
+    "returns",
+    metadata,
+    Column("date", Date, primary_key=True, nullable=False),
+    Column("ticker", String(16), primary_key=True, nullable=False),
+    Column("freq", String(8), primary_key=True, nullable=False),  # 'daily' | 'monthly'
+    Column("log_return", Float),
+    Column("simple_return", Float),
+)
+
+universe_membership_table = Table(
+    "universe_membership",
+    metadata,
+    Column("ticker", String(16), primary_key=True, nullable=False),
+    Column("date", Date, primary_key=True, nullable=False),
+    Column("in_universe", Boolean, nullable=False),
+    Column("market_cap_proxy", Float),   # price * avg_volume (dollar-volume proxy)
+    Column("avg_dollar_vol", Float),     # trailing 60-day avg daily dollar volume
+    Column("days_since_first_price", Float),  # for IPO exclusion
 )
 
 
