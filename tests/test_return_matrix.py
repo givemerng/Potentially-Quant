@@ -207,6 +207,11 @@ class TestCrossSectionalStats:
         stats = rm.cross_sectional_stats(dates[0])
         assert np.isnan(stats["mean"])
 
+    def test_cross_sectional_stats_over_time_has_date_index(self, rm: ReturnMatrix) -> None:
+        result = rm.cross_sectional_stats_over_time()
+        assert result.index.name == "date"
+        assert len(result) == len(rm.dates)
+
 
 # ---------------------------------------------------------------------------
 # Annual stats
@@ -250,3 +255,10 @@ class TestAnnualStats:
         rm = ReturnMatrix(pd.DataFrame())
         result = rm.annual_stats()
         assert result.empty
+
+
+class TestUtilities:
+    def test_to_long_roundtrip_row_count(self, rm: ReturnMatrix) -> None:
+        long_df = rm.to_long("log_return")
+        assert len(long_df) == rm.shape[0] * rm.shape[1]
+        assert {"date", "ticker", "log_return"} == set(long_df.columns)

@@ -1,30 +1,42 @@
 # Regime-Adaptive Multi-Factor Alpha Engine
 
-Week 1 foundation for a reproducible quant research data pipeline. The project downloads historical equity OHLCV data from Yahoo Finance, macro series from FRED, and stores both in PostgreSQL using idempotent upserts.
+This repository currently covers the full **Week 1 foundation** and the core **Week 2 return and universe workflow** from the 12-week implementation plan.
 
-## Features
+The project ingests historical equity OHLCV data from Yahoo Finance, macro series from FRED, stores both in PostgreSQL with idempotent upserts, computes daily and monthly returns, builds a point-in-time universe membership table, and generates Week 2 cross-sectional return matrix artifacts.
 
-- Reproducible config-driven ingestion with `config/config.yaml`
-- Optional one-command schema rebuild with `rebuild_on_run: true`
-- Parallel Yahoo Finance downloader with retries and progress bars
-- FRED macro downloader with forward-fill normalization
-- PostgreSQL schema creation and upserts via SQLAlchemy
-- Centralized logging to console and file
-- Single entrypoint to rebuild the dataset from scratch
+## Implemented Scope
 
-## Project Layout
+- Week 1: config-driven ingestion pipeline
+- Week 1: PostgreSQL schema creation and upserts
+- Week 1: centralized logging and reproducible entrypoint
+- Week 2: daily and monthly return calculation
+- Week 2: point-in-time universe membership filtering
+- Week 2: return matrix construction and masking by universe
+- Week 2: cross-sectional distribution statistics and annual tail diagnostics
 
-- `config/config.yaml`: universe, date range, FRED series, downloader settings
-- `src/config.py`: pydantic-backed config loader
-- `src/data/downloader.py`: Yahoo Finance downloader
-- `src/data/fred_client.py`: FRED downloader
-- `src/data/db.py`: database schema and upsert helpers
-- `src/data/ingestion.py`: pipeline orchestration
-- `src/main.py`: command-line entrypoint
-- `src/utils/logger.py`: logger setup
-- `tests/`: focused unit tests for config and download normalization
+## Repository Layout
 
-## Setup
+- `config/config.yaml`: universe, date range, FRED series, downloader settings, Week 2 settings
+- `src/config.py`: Pydantic-backed config models
+- `src/data/downloader.py`: Yahoo Finance downloader with batching, retries, and progress bars
+- `src/data/fred_client.py`: FRED downloader with retries and forward-filled normalization
+- `src/data/db.py`: database schema and PostgreSQL upsert helpers
+- `src/data/ingestion.py`: Week 1 ingestion pipeline
+- `src/factors/returns.py`: daily and monthly return computation plus validation
+- `src/factors/universe.py`: point-in-time universe construction
+- `src/factors/return_matrix.py`: return matrix helpers for masking and distribution stats
+- `src/factors/analysis.py`: Week 2 return-matrix analysis and artifact generation
+- `src/main.py`: orchestrates Week 1 ingestion and Week 2 processing
+- `tests/`: focused unit tests for config, download normalization, returns, return matrix, universe logic, and Week 2 analysis
+
+## Database Tables
+
+- `prices`: OHLCV and adjusted close by `date, ticker`
+- `macro`: macro time series values by `date, series_name`
+- `returns`: daily and monthly returns by `date, ticker, freq`
+- `universe_membership`: point-in-time universe flags and liquidity metrics by `date, ticker`
+
+## Run
 
 1. Create a Python 3.10+ virtual environment.
 2. Install dependencies:
@@ -34,33 +46,51 @@ pip install -r requirements.txt
 ```
 
 3. Update `.env` with PostgreSQL credentials and your `FRED_API_KEY`.
-4. Adjust `config/config.yaml` for your target universe and dates.
-
-## Run
+4. Adjust `config/config.yaml` for the target universe and date range.
+5. Run the pipeline:
 
 ```bash
 python -m src.main
 ```
 
-This command creates the schema if needed, downloads data, upserts into PostgreSQL, and prints a row-count summary.
+This will:
+- create or rebuild the tracked database tables
+- download and store price data
+- download and store macro data
+- compute daily and monthly returns
+- compute point-in-time universe membership
+- build the Week 2 return matrix
+- generate cross-sectional stats and annual fat-tail diagnostics
+- write processed artifacts under `data/processed/week2`
 
-Set `rebuild_on_run: true` in `config/config.yaml` when you want the pipeline to drop and recreate the target tables before ingestion.
+## Week 2 Artifacts
 
-## PostgreSQL Tables
+The Week 2 analysis writes:
 
-`prices`
+- `data/processed/week2/return_matrix_cleaned.csv`
+- `data/processed/week2/return_matrix_trimmed.csv`
+- `data/processed/week2/cross_sectional_stats.csv`
+- `data/processed/week2/annual_stats.csv`
+- `data/processed/week2/latest_cross_section_hist.png`
+- `data/processed/week2/annual_tail_diagnostics.png`
 
-- `date`, `ticker` composite primary key
-- `open`, `high`, `low`, `close`, `adj_close`, `volume`
+## Rebuild Mode
 
-`macro`
+Set `rebuild_on_run: true` in `config/config.yaml` to drop and recreate the tracked tables before ingestion.
 
-- `date`, `series_name` composite primary key
-- `value`
+## Not Yet Implemented
+
+- Week 3 factor classes and factor library
+- IC / ICIR evaluation harness
+- factor neutralization
+- backtesting engine
+- regime detection
+- adaptive composite model
+- API, dashboard, and deployment layers
 
 ## Reproducibility Notes
 
-- The pipeline is config-driven and idempotent.
-- Inserts use PostgreSQL upsert logic to avoid duplicates.
-- Download retries reduce transient API failures.
-- The pipeline isolates stock and macro ingestion so one failure does not terminate the other branch.
+- The pipeline is config-driven and rerunnable.
+- Database writes use PostgreSQL upserts to avoid duplicate inserts.
+- Stock and macro ingestion fail independently so one broken source does not terminate the entire run.
+- Universe construction is point-in-time and avoids future data leakage by using only information available on or before each date.

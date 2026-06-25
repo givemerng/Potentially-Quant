@@ -5,11 +5,10 @@ universe trimming, and distributional analysis.
 """
 from __future__ import annotations
 
-from typing import Dict, Optional
+from typing import Dict
 
 import numpy as np
 import pandas as pd
-from scipy import stats
 
 
 class ReturnMatrix:
@@ -161,8 +160,8 @@ class ReturnMatrix:
             "mean": float(row.mean()),
             "std": float(row.std()),
             "median": float(row.median()),
-            "skewness": float(stats.skew(row)),
-            "kurtosis": float(stats.kurtosis(row)),  # excess kurtosis
+            "skewness": float(row.skew()),
+            "kurtosis": float(row.kurt()),  # excess kurtosis
             "n_stocks": int(row.count()),
             "pct_positive": float((row > 0).mean()),
         }
@@ -199,12 +198,35 @@ class ReturnMatrix:
                     "n_obs": len(pooled),
                     "mean": float(np.mean(pooled)),
                     "std": float(np.std(pooled, ddof=1)),
-                    "skewness": float(stats.skew(pooled)),
-                    "excess_kurtosis": float(stats.kurtosis(pooled)),  # excess over normal=3
+                    "skewness": float(pd.Series(pooled).skew()),
+                    "excess_kurtosis": float(pd.Series(pooled).kurt()),
                 }
             )
 
         return pd.DataFrame(records).set_index("year")
+
+    def cross_sectional_stats_over_time(self) -> pd.DataFrame:
+        """Compute cross-sectional distribution stats for each date."""
+        if self.data.empty:
+            return pd.DataFrame(
+                columns=["mean", "std", "median", "skewness", "kurtosis", "n_stocks", "pct_positive"]
+            ).rename_axis("date")
+
+        records = []
+        for date in self.data.index:
+            stats_for_date = self.cross_sectional_stats(date)
+            stats_for_date["date"] = pd.Timestamp(date)
+            records.append(stats_for_date)
+
+        result = pd.DataFrame(records).set_index("date").sort_index()
+        result.index.name = "date"
+        return result
+
+    def to_long(self, value_name: str = "value") -> pd.DataFrame:
+        """Convert the wide matrix to long format."""
+        long_df = self.data.stack(future_stack=True).rename(value_name).reset_index()
+        long_df.columns = ["date", "ticker", value_name]
+        return long_df
 
     # ------------------------------------------------------------------
     # Utilities

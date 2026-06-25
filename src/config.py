@@ -23,6 +23,15 @@ class UniverseFilterConfig(BaseModel):
     dollar_vol_lookback_days: int = Field(default=60, ge=1, description="Lookback window for avg daily dollar volume")
 
 
+class Week2Config(BaseModel):
+    return_frequency: str = Field(default="monthly", pattern="^(daily|monthly)$")
+    return_column: str = Field(default="simple_return", pattern="^(simple_return|log_return)$")
+    gap_fill_method: str = Field(default="none", pattern="^(none|zero|drop_cols)$")
+    max_consecutive_missing: int = Field(default=5, ge=1)
+    artifact_dir: str = "data/processed/week2"
+    save_artifacts: bool = True
+
+
 class LoggingConfig(BaseModel):
     level: str = "INFO"
     file: str = "logs/pipeline.log"
@@ -38,6 +47,7 @@ class AppConfig(BaseModel):
     rebuild_on_run: bool = False
     download: DownloadConfig = Field(default_factory=DownloadConfig)
     universe_filter: UniverseFilterConfig = Field(default_factory=UniverseFilterConfig)
+    week2: Week2Config = Field(default_factory=Week2Config)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
 
     @field_validator("stock_universe", mode="before")
