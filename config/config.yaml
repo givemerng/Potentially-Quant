@@ -32,3 +32,14 @@ week2:
 logging:
   level: INFO
   file: logs/pipeline.log
+
+week3:
+  momentum_lookback_months: 12
+  short_momentum_lookback_months: 3
+  volatility_lookback_days: 252
+  winsorize_limits: [0.01, 0.01]  # winsorize limits [left_pct, right_pct]
+  neutralize_size: true
+  neutralize_sector: true
+  save_artifacts: true
+  artifact_dir: data/processed/week3
+

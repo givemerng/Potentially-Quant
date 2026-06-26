@@ -32,6 +32,17 @@ class Week2Config(BaseModel):
     save_artifacts: bool = True
 
 
+class Week3Config(BaseModel):
+    momentum_lookback_months: int = Field(default=12, ge=2)
+    short_momentum_lookback_months: int = Field(default=3, ge=2)
+    volatility_lookback_days: int = Field(default=252, ge=1)
+    winsorize_limits: List[float] = Field(default_factory=lambda: [0.01, 0.01])
+    neutralize_size: bool = True
+    neutralize_sector: bool = True
+    save_artifacts: bool = True
+    artifact_dir: str = "data/processed/week3"
+
+
 class LoggingConfig(BaseModel):
     level: str = "INFO"
     file: str = "logs/pipeline.log"
@@ -48,7 +59,9 @@ class AppConfig(BaseModel):
     download: DownloadConfig = Field(default_factory=DownloadConfig)
     universe_filter: UniverseFilterConfig = Field(default_factory=UniverseFilterConfig)
     week2: Week2Config = Field(default_factory=Week2Config)
+    week3: Week3Config = Field(default_factory=Week3Config)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
+
 
     @field_validator("stock_universe", mode="before")
     @classmethod

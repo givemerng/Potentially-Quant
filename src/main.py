@@ -1,17 +1,34 @@
-from __future__ import annotations
-
 from pathlib import Path
-
+import numpy as np
 import pandas as pd
 from sqlalchemy import text
 
 from src.config import AppConfig
-from src.data.db import get_engine
+from src.data.db import get_engine, factors_table, factor_metrics_table, upsert_rows
 from src.data.ingestion import DataIngestionPipeline
 from src.factors.analysis import Week2AnalysisPipeline
 from src.factors.returns import ReturnCalculator
 from src.factors.universe import UniverseFilter
+from src.factors.neutralization import winsorize_series, z_score_series, neutralize_factor_scores
+from src.factors.library import PriceMomentum, ThreeMonthMomentum, BookToPrice, GrossProfitability, LowVolatility
+from src.factors.evaluation import FactorEvaluator
 from src.utils.logger import setup_logger
+
+
+def _load_metadata_from_db(engine) -> pd.DataFrame:
+    query = text("SELECT ticker, sector, industry, shares_outstanding FROM ticker_metadata")
+    with engine.connect() as conn:
+        return pd.read_sql(query, conn)
+
+
+def _load_fundamentals_from_db(engine) -> pd.DataFrame:
+    query = text("SELECT date, ticker, book_value, gross_profit, total_assets, eps FROM fundamentals")
+    with engine.connect() as conn:
+        df = pd.read_sql(query, conn)
+    if not df.empty:
+        df["date"] = pd.to_datetime(df["date"])
+    return df
+
 
 
 def _load_prices_from_db(engine, config: AppConfig) -> pd.DataFrame:
@@ -140,7 +157,143 @@ def main() -> None:
     print(f"Annual stats rows:                    {analysis_summary.annual_stats_rows}")
     print(f"Artifacts written:                    {analysis_summary.artifacts_written}")
 
-    print("\nWeek 1 + Week 2 pipeline complete.")
+    logger.info("Starting Week 3 - Factor Calculation and Preprocessing Pipeline")
+    metadata_df = _load_metadata_from_db(engine)
+    fundamentals_df = _load_fundamentals_from_db(engine)
+
+    factor_objs = {
+        "PriceMomentum": PriceMomentum(logger=logger),
+        "ThreeMonthMomentum": ThreeMonthMomentum(logger=logger),
+        "BookToPrice": BookToPrice(logger=logger),
+        "GrossProfitability": GrossProfitability(logger=logger),
+        "LowVolatility": LowVolatility(logger=logger),
+    }
+
+    # Gather evaluation dates (month-ends from stored returns)
+    monthly_returns = _load_returns_from_db(engine=engine, freq="monthly")
+    if monthly_returns.empty:
+        logger.error("No monthly returns found in DB; cannot compute Week 3 factors.")
+        return
+
+    eval_dates = sorted(monthly_returns.index.get_level_values("date").unique())
+    logger.info("Computing factors over %d month-end dates", len(eval_dates))
+
+    all_factor_scores = []
+    prices_sorted = prices.copy().sort_index()
+
+    # Maps for neutralization lookups
+    sector_map = metadata_df.set_index("ticker")["sector"]
+    shares_map = metadata_df.set_index("ticker")["shares_outstanding"]
+
+    for eval_date in eval_dates:
+        # Get active universe tickers for this date
+        active_universe = stored_membership[
+            (stored_membership["date"] == eval_date.date()) & (stored_membership["in_universe"] == True)
+        ]
+        if active_universe.empty:
+            continue
+
+        active_tickers = active_universe["ticker"].tolist()
+
+        try:
+            close_prices_t = prices_sorted.xs(eval_date, level="date")["adj_close"]
+        except KeyError:
+            close_prices_t = pd.Series(dtype=float)
+
+        for factor_name, factor_obj in factor_objs.items():
+            try:
+                raw_scores = factor_obj.compute(
+                    engine=engine,
+                    prices_df=prices_sorted,
+                    metadata_df=metadata_df,
+                    fundamentals_df=fundamentals_df,
+                    date=eval_date,
+                    config=config.week3.model_dump(),
+                )
+            except Exception as exc:
+                logger.error("Error computing factor %s on date %s: %s", factor_name, eval_date, exc)
+                continue
+
+            raw_scores = raw_scores.reindex(active_tickers)
+            if raw_scores.dropna().empty:
+                continue
+
+            limits = tuple(config.week3.winsorize_limits)
+            winsorized = winsorize_series(raw_scores, limits)
+            zscore = z_score_series(winsorized)
+
+            # Sizes = Close Price * Shares
+            sizes_t = close_prices_t.reindex(active_tickers) * shares_map.reindex(active_tickers)
+            mc_proxy = active_universe.set_index("ticker")["market_cap_proxy"] * 1e9
+            sizes_t = sizes_t.fillna(mc_proxy).fillna(1.0)
+            
+            sectors_t = sector_map.reindex(active_tickers).fillna("Unknown")
+
+            final_scores = neutralize_factor_scores(
+                factor_scores=zscore,
+                sizes=sizes_t,
+                sectors=sectors_t,
+                neutralize_size=config.week3.neutralize_size,
+                neutralize_sector=config.week3.neutralize_sector,
+            )
+
+            for ticker in active_tickers:
+                all_factor_scores.append({
+                    "date": eval_date.date(),
+                    "ticker": ticker,
+                    "factor_name": factor_name,
+                    "raw_score": float(raw_scores.loc[ticker]) if not pd.isna(raw_scores.loc[ticker]) else None,
+                    "winsorized_score": float(winsorized.loc[ticker]) if not pd.isna(winsorized.loc[ticker]) else None,
+                    "z_score": float(zscore.loc[ticker]) if not pd.isna(zscore.loc[ticker]) else None,
+                    "final_score": float(final_scores.loc[ticker]) if not pd.isna(final_scores.loc[ticker]) else None,
+                })
+
+    if not all_factor_scores:
+        logger.error("No factor scores were calculated.")
+        return
+
+    # Upsert factor scores
+    factor_scores_df = pd.DataFrame(all_factor_scores)
+    rows_written = upsert_rows(engine, factors_table, all_factor_scores)
+    logger.info("Successfully upserted %d factor scores to DB", rows_written)
+
+    # Evaluate factors
+    evaluator = FactorEvaluator(logger=logger)
+    eval_results = []
+
+    for factor_name in factor_objs.keys():
+        factor_subset = factor_scores_df[factor_scores_df["factor_name"] == factor_name]
+        monthly_returns_reset = monthly_returns.reset_index()
+        monthly_returns_reset["date"] = pd.to_datetime(monthly_returns_reset["date"])
+
+        summary = evaluator.evaluate_factor(
+            engine=engine,
+            factor_name=factor_name,
+            factor_scores_df=factor_subset,
+            returns_df=monthly_returns_reset,
+        )
+        if summary:
+            summary["factor_name"] = factor_name
+            eval_results.append(summary)
+
+    # Write CSV artifacts
+    if config.week3.save_artifacts:
+        artifact_dir = Path(config.week3.artifact_dir)
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+
+        factor_scores_df.to_csv(artifact_dir / "factor_scores.csv", index=False)
+
+        if eval_results:
+            eval_df = pd.DataFrame(eval_results)
+            eval_df.to_csv(artifact_dir / "factor_evaluation_summary.csv", index=False)
+
+            print("\n=== Week 3 - Factor Evaluation Summary ===")
+            print(eval_df.to_string(index=False))
+
+        logger.info("Saved Week 3 artifacts under %s", artifact_dir)
+
+    print("\nWeek 1 + Week 2 + Week 3 pipeline complete.")
+
 
 
 if __name__ == "__main__":

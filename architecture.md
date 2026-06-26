@@ -103,6 +103,29 @@ Implemented tables:
 - Produces cleaned and trimmed return matrices
 - Produces CSV and PNG artifacts for exploratory analysis
 
+### `src/data/fama_french_client.py`
+
+- Handles downloading and parsing of daily Fama-French 5-factor returns
+
+### `src/factors/base.py`
+
+- Defines abstract `BaseAlpha` factor class
+
+### `src/factors/library.py`
+
+- Multi-factor library containing the 5 alpha implementations (Price Momentum, 3-Month Momentum, Book-to-Price, Gross Profitability, Low Volatility)
+- Features robust handling of missing inputs per ticker
+
+### `src/factors/neutralization.py`
+
+- Implements factor preprocessing pipeline: Winsorize ➔ Z-score ➔ Statsmodels OLS Size and Sector Neutralization
+
+### `src/factors/evaluation.py`
+
+- Evaluates raw and finalized factor scores separately
+- Computes time-series IC, aggregate ICIR, quintile simple returns, annualized Sharpe ratios, and decay half-lives
+- Persists all results to `factor_metrics` table
+
 ## Week-by-Week Architecture Status
 
 ### Week 1
@@ -141,18 +164,28 @@ Not implemented yet:
 - automated plotting notebook refresh
 - formal data quality reporting layer
 
-### Week 3+
+### Week 3
+
+Implemented:
+
+- abstract base alpha factor class
+- 5 base factors library
+- winsorization and Z-score standardization helpers
+- statsmodels OLS size and sector neutralization pipeline
+- factor performance evaluation harness (IC, ICIR, Sharpe, half-life)
+- factor score intermediate stages and time-series metrics persistence
+
+### Week 4+
 
 Not started in architecture terms:
 
-- factor base classes
-- alpha library
-- IC / ICIR harness
-- neutralization
-- backtesting
-- regime detection
-- adaptive weighting
-- deployment surfaces
+- Week 4+ factor library expansion (SUE, alternative data)
+- backtesting engine (Week 5)
+- XGBoost combo model (Week 6)
+- regime detection (Week 7)
+- adaptive weighting (Week 8)
+- CVaR risk optimization (Week 9)
+- deployment surfaces (Weeks 10-12)
 
 ## Artifact Outputs
 
@@ -164,3 +197,9 @@ Current Week 2 analysis writes:
 - `data/processed/week2/annual_stats.csv`
 - `data/processed/week2/latest_cross_section_hist.png`
 - `data/processed/week2/annual_tail_diagnostics.png`
+
+Current Week 3 factor engine writes:
+
+- `data/processed/week3/factor_scores.csv`
+- `data/processed/week3/factor_evaluation_summary.csv`
+

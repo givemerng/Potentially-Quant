@@ -53,6 +53,61 @@ universe_membership_table = Table(
     Column("days_since_first_price", Float),  # for IPO exclusion
 )
 
+ticker_metadata_table = Table(
+    "ticker_metadata",
+    metadata,
+    Column("ticker", String(16), primary_key=True, nullable=False),
+    Column("sector", String(64)),
+    Column("industry", String(64)),
+    Column("shares_outstanding", Float),
+)
+
+fundamentals_table = Table(
+    "fundamentals",
+    metadata,
+    Column("date", Date, primary_key=True, nullable=False),
+    Column("ticker", String(16), primary_key=True, nullable=False),
+    Column("book_value", Float),
+    Column("gross_profit", Float),
+    Column("total_assets", Float),
+    Column("eps", Float),
+)
+
+factors_table = Table(
+    "factors",
+    metadata,
+    Column("date", Date, primary_key=True, nullable=False),
+    Column("ticker", String(16), primary_key=True, nullable=False),
+    Column("factor_name", String(64), primary_key=True, nullable=False),
+    Column("raw_score", Float),
+    Column("winsorized_score", Float),
+    Column("z_score", Float),
+    Column("final_score", Float),
+)
+
+factor_metrics_table = Table(
+    "factor_metrics",
+    metadata,
+    Column("date", Date, primary_key=True, nullable=False),
+    Column("factor_name", String(64), primary_key=True, nullable=False),
+    Column("stage", String(16), primary_key=True, nullable=False),  # 'raw' or 'final'
+    Column("metric_name", String(64), primary_key=True, nullable=False),
+    Column("value", Float),
+)
+
+fama_french_table = Table(
+    "fama_french",
+    metadata,
+    Column("date", Date, primary_key=True, nullable=False),
+    Column("mkt_rf", Float),
+    Column("smb", Float),
+    Column("hml", Float),
+    Column("rmw", Float),
+    Column("cma", Float),
+    Column("rf", Float),
+)
+
+
 
 def build_connection_string() -> str:
     load_dotenv()

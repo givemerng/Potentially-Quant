@@ -203,6 +203,10 @@ class ReturnMatrix:
                 }
             )
 
+        if not records:
+            return pd.DataFrame(
+                columns=["n_obs", "mean", "std", "skewness", "excess_kurtosis"]
+            ).rename_axis("year")
         return pd.DataFrame(records).set_index("year")
 
     def cross_sectional_stats_over_time(self) -> pd.DataFrame:
