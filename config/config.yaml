@@ -11,6 +11,8 @@ fred_series:
   - DGS2
   - VIXCLS
   - GDP
+  - BAMLH0A0HYM2
+  - NAPM
 rebuild_on_run: false
 download:
   max_workers: 4

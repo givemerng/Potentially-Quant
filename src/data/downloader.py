@@ -172,18 +172,21 @@ class YahooFinanceDownloader:
         try:
             bs = yf_ticker.quarterly_balance_sheet
             fin = yf_ticker.quarterly_financials
-
+            cf = yf_ticker.quarterly_cashflow
+ 
             if bs.empty:
                 bs = yf_ticker.balance_sheet
             if fin.empty:
                 fin = yf_ticker.financials
-
-            if not bs.empty or not fin.empty:
+            if cf.empty:
+                cf = yf_ticker.cashflow
+ 
+            if not bs.empty or not fin.empty or not cf.empty:
                 # Combine rows
-                combined = pd.concat([bs, fin], axis=0)
+                combined = pd.concat([bs, fin, cf], axis=0)
                 # Keep index strings clean
                 combined.index = [str(idx).strip() for idx in combined.index]
-
+ 
                 # Helper to extract metrics case-insensitively
                 def extract_metric(candidates: list[str]) -> pd.Series | None:
                     idx_lower = [idx.lower() for idx in combined.index]
@@ -193,27 +196,81 @@ class YahooFinanceDownloader:
                             pos = idx_lower.index(cand_l)
                             return combined.iloc[pos]
                     return None
-
+ 
                 book_value = extract_metric(["stockholders equity", "total stockholders equity", "common stock equity", "stockholders_equity"])
                 gross_profit = extract_metric(["gross profit", "grossprofit", "gross_profit"])
                 total_assets = extract_metric(["total assets", "totalassets", "total_assets"])
                 eps = extract_metric(["diluted eps", "basic eps", "diluted_eps", "basic_eps", "eps", "net income"])
-
+                ebitda = extract_metric(["ebitda", "normalized ebitda", "normalized_ebitda"])
+                total_debt = extract_metric(["total debt", "total_debt"])
+                operating_cash_flow = extract_metric(["operating cash flow", "operating_cash_flow", "cash flow from continuing operating activities"])
+                capital_expenditures = extract_metric(["capital expenditure", "capital_expenditures", "capital_expenditure", "purchase of ppe", "purchase of property plant and equipment"])
+                net_income = extract_metric(["net income", "net_income", "net income from continuing operations"])
+ 
                 # Align to columns (reporting dates)
                 temp_df = pd.DataFrame(index=combined.columns)
                 temp_df["book_value"] = book_value if book_value is not None else pd.NA
                 temp_df["gross_profit"] = gross_profit if gross_profit is not None else pd.NA
                 temp_df["total_assets"] = total_assets if total_assets is not None else pd.NA
                 temp_df["eps"] = eps if eps is not None else pd.NA
-
+                temp_df["ebitda"] = ebitda if ebitda is not None else pd.NA
+                temp_df["total_debt"] = total_debt if total_debt is not None else pd.NA
+                temp_df["operating_cash_flow"] = operating_cash_flow if operating_cash_flow is not None else pd.NA
+                temp_df["capital_expenditures"] = capital_expenditures.abs() if capital_expenditures is not None else pd.NA
+                temp_df["net_income"] = net_income if net_income is not None else pd.NA
+ 
                 temp_df = temp_df.rename_axis("date").reset_index()
                 temp_df["date"] = pd.to_datetime(temp_df["date"]).dt.date
                 temp_df["ticker"] = ticker
                 fund_df = temp_df
         except Exception as exc:
             self.logger.warning("Error fetching quarterly financial statement data for %s: %s", ticker, exc)
-
+ 
         return meta, fund_df
+
+    def fetch_earnings_calendar(self, tickers: List[str]) -> pd.DataFrame:
+        self.logger.info("Starting earnings calendar fetch for %d tickers", len(tickers))
+        records = []
+        for ticker in tickers:
+            try:
+                yf_ticker = yf.Ticker(ticker)
+                ed = yf_ticker.earnings_dates
+                if ed is not None and not ed.empty:
+                    for dt, row in ed.iterrows():
+                        clean_dt = pd.Timestamp(dt).tz_localize(None).date()
+                        records.append({
+                            "ticker": ticker,
+                            "date": clean_dt,
+                            "eps_estimate": float(row["EPS Estimate"]) if not pd.isna(row["EPS Estimate"]) else None,
+                            "reported_eps": float(row["Reported EPS"]) if not pd.isna(row["Reported EPS"]) else None,
+                            "surprise_pct": float(row["Surprise(%)"]) if not pd.isna(row["Surprise(%)"]) else None,
+                        })
+            except Exception as exc:
+                self.logger.warning("Failed to fetch earnings calendar for %s: %s", ticker, exc)
+        return pd.DataFrame(records)
+
+    def fetch_insider_transactions(self, tickers: List[str]) -> pd.DataFrame:
+        self.logger.info("Starting insider transactions fetch for %d tickers", len(tickers))
+        records = []
+        for ticker in tickers:
+            try:
+                yf_ticker = yf.Ticker(ticker)
+                it = yf_ticker.insider_transactions
+                if it is not None and not it.empty:
+                    for _, row in it.iterrows():
+                        dt = pd.to_datetime(row["Start Date"]).date()
+                        records.append({
+                            "ticker": ticker,
+                            "date": dt,
+                            "insider": str(row["Insider"]) if not pd.isna(row["Insider"]) else None,
+                            "position": str(row["Position"]) if not pd.isna(row["Position"]) else None,
+                            "shares": float(row["Shares"]) if not pd.isna(row["Shares"]) else None,
+                            "value": float(row["Value"]) if not pd.isna(row["Value"]) else None,
+                            "text": str(row["Text"]) if not pd.isna(row["Text"]) else None,
+                        })
+            except Exception as exc:
+                self.logger.warning("Failed to fetch insider transactions for %s: %s", ticker, exc)
+        return pd.DataFrame(records)
 
     @staticmethod
     def _chunked(values: List[str], batch_size: int) -> Iterable[List[str]]:

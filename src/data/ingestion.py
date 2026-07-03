@@ -8,7 +8,8 @@ import pandas as pd
 from src.config import AppConfig
 from src.data.db import (
     create_schema, get_engine, macro_table, prices_table, rebuild_schema, upsert_rows,
-    ticker_metadata_table, fundamentals_table, fama_french_table
+    ticker_metadata_table, fundamentals_table, fama_french_table,
+    insider_transactions_table, earnings_calendar_table
 )
 from src.data.downloader import YahooFinanceDownloader
 from src.data.fred_client import FredDownloader
@@ -25,6 +26,8 @@ class PipelineSummary:
     metadata_rows_upserted: int = 0
     fundamentals_rows_upserted: int = 0
     ff_rows_upserted: int = 0
+    earnings_calendar_rows_upserted: int = 0
+    insider_transactions_rows_upserted: int = 0
     failed: bool = False
 
     @property
@@ -35,6 +38,8 @@ class PipelineSummary:
             + self.metadata_rows_upserted
             + self.fundamentals_rows_upserted
             + self.ff_rows_upserted
+            + self.earnings_calendar_rows_upserted
+            + self.insider_transactions_rows_upserted
         )
 
 
@@ -67,6 +72,8 @@ class DataIngestionPipeline:
         metadata_rows_upserted = 0
         fundamentals_rows_upserted = 0
         ff_rows_upserted = 0
+        earnings_calendar_rows_upserted = 0
+        insider_transactions_rows_upserted = 0
         failed = False
 
         try:
@@ -103,6 +110,18 @@ class DataIngestionPipeline:
             self.logger.exception("Metadata/Fundamental ingestion failed: %s", exc)
 
         try:
+            earnings_df = self.yahoo.fetch_earnings_calendar(tickers=self.config.stock_universe)
+            earnings_calendar_rows_upserted = self._store_earnings_calendar(earnings_df)
+        except Exception as exc:
+            self.logger.warning("Earnings calendar ingestion failed: %s. Continuing.", exc)
+
+        try:
+            insider_df = self.yahoo.fetch_insider_transactions(tickers=self.config.stock_universe)
+            insider_transactions_rows_upserted = self._store_insider_transactions(insider_df)
+        except Exception as exc:
+            self.logger.warning("Insider transactions ingestion failed: %s. Continuing.", exc)
+
+        try:
             ff_df = self.fama_french.download_daily_factors()
             ff_rows_upserted = self._store_fama_french(ff_df)
         except Exception as exc:
@@ -117,6 +136,8 @@ class DataIngestionPipeline:
             metadata_rows_upserted=metadata_rows_upserted,
             fundamentals_rows_upserted=fundamentals_rows_upserted,
             ff_rows_upserted=ff_rows_upserted,
+            earnings_calendar_rows_upserted=earnings_calendar_rows_upserted,
+            insider_transactions_rows_upserted=insider_transactions_rows_upserted,
             failed=failed,
         )
 
@@ -161,6 +182,24 @@ class DataIngestionPipeline:
         rows = df.to_dict(orient="records")
         upserted = upsert_rows(self.engine, fundamentals_table, rows)
         self.logger.info("Upserted %s fundamental rows", upserted)
+        return upserted
+
+    def _store_earnings_calendar(self, df: pd.DataFrame) -> int:
+        if df.empty:
+            self.logger.warning("No earnings calendar rows to store")
+            return 0
+        rows = df.to_dict(orient="records")
+        upserted = upsert_rows(self.engine, earnings_calendar_table, rows)
+        self.logger.info("Upserted %s earnings calendar rows", upserted)
+        return upserted
+
+    def _store_insider_transactions(self, df: pd.DataFrame) -> int:
+        if df.empty:
+            self.logger.warning("No insider transaction rows to store")
+            return 0
+        rows = df.to_dict(orient="records")
+        upserted = upsert_rows(self.engine, insider_transactions_table, rows)
+        self.logger.info("Upserted %s insider transaction rows", upserted)
         return upserted
 
     def _store_fama_french(self, df: pd.DataFrame) -> int:

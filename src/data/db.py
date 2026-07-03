@@ -4,7 +4,7 @@ import os
 from typing import Dict
 
 from dotenv import load_dotenv
-from sqlalchemy import Boolean, Column, Date, Float, MetaData, String, Table, BigInteger, create_engine
+from sqlalchemy import Boolean, Column, Date, Float, Integer, MetaData, String, Table, BigInteger, create_engine
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.engine import Engine
 
@@ -71,6 +71,34 @@ fundamentals_table = Table(
     Column("gross_profit", Float),
     Column("total_assets", Float),
     Column("eps", Float),
+    Column("ebitda", Float),
+    Column("total_debt", Float),
+    Column("operating_cash_flow", Float),
+    Column("capital_expenditures", Float),
+    Column("net_income", Float),
+)
+
+insider_transactions_table = Table(
+    "insider_transactions",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("ticker", String(16), nullable=False),
+    Column("date", Date, nullable=False),
+    Column("insider", String(128)),
+    Column("position", String(128)),
+    Column("shares", Float),
+    Column("value", Float),
+    Column("text", String(512)),
+)
+
+earnings_calendar_table = Table(
+    "earnings_calendar",
+    metadata,
+    Column("ticker", String(16), primary_key=True, nullable=False),
+    Column("date", Date, primary_key=True, nullable=False),
+    Column("eps_estimate", Float),
+    Column("reported_eps", Float),
+    Column("surprise_pct", Float),
 )
 
 factors_table = Table(
