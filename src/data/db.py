@@ -135,6 +135,91 @@ fama_french_table = Table(
     Column("rf", Float),
 )
 
+portfolio_weights_table = Table(
+    "portfolio_weights",
+    metadata,
+    Column("date", Date, primary_key=True, nullable=False),
+    Column("ticker", String(16), primary_key=True, nullable=False),
+    Column("backtest_name", String(64), primary_key=True, nullable=False),
+    Column("weight", Float),
+)
+
+trades_table = Table(
+    "trades",
+    metadata,
+    Column("date", Date, primary_key=True, nullable=False),
+    Column("ticker", String(16), primary_key=True, nullable=False),
+    Column("backtest_name", String(64), primary_key=True, nullable=False),
+    Column("trade_type", String(16)),
+    Column("weight_change", Float),
+    Column("turnover_contribution", Float),
+)
+
+backtest_results_table = Table(
+    "backtest_results",
+    metadata,
+    Column("date", Date, primary_key=True, nullable=False),
+    Column("backtest_name", String(64), primary_key=True, nullable=False),
+    Column("gross_return", Float),
+    Column("net_return", Float),
+    Column("portfolio_value", Float),
+    Column("drawdown", Float),
+    Column("turnover", Float),
+    Column("transaction_costs", Float),
+)
+
+backtest_metrics_table = Table(
+    "backtest_metrics",
+    metadata,
+    Column("backtest_name", String(64), primary_key=True, nullable=False),
+    Column("metric_name", String(64), primary_key=True, nullable=False),
+    Column("value", Float),
+)
+
+combination_runs_table = Table(
+    "combination_runs",
+    metadata,
+    Column("run_id", String(64), primary_key=True, nullable=False),
+    Column("method", String(32), nullable=False),
+    Column("config_hash", String(64)),
+    Column("train_start", Date),
+    Column("train_end", Date),
+    Column("test_start", Date),
+    Column("test_end", Date),
+    Column("created_at", Date, nullable=False),
+)
+
+composite_scores_table = Table(
+    "composite_scores",
+    metadata,
+    Column("date", Date, primary_key=True, nullable=False),
+    Column("ticker", String(16), primary_key=True, nullable=False),
+    Column("method", String(32), primary_key=True, nullable=False),
+    Column("run_id", String(64), nullable=False),
+    Column("composite_score", Float),
+)
+
+combination_weights_table = Table(
+    "combination_weights",
+    metadata,
+    Column("date", Date, primary_key=True, nullable=False),
+    Column("factor_name", String(64), primary_key=True, nullable=False),
+    Column("method", String(32), primary_key=True, nullable=False),
+    Column("run_id", String(64), nullable=False),
+    Column("weight", Float),
+)
+
+combination_metrics_table = Table(
+    "combination_metrics",
+    metadata,
+    Column("run_id", String(64), primary_key=True, nullable=False),
+    Column("method", String(32), primary_key=True, nullable=False),
+    Column("metric_name", String(64), primary_key=True, nullable=False),
+    Column("metric_scope", String(16), nullable=False),  # 'full' or 'oos'
+    Column("value", Float),
+)
+
+
 
 
 def build_connection_string() -> str:
