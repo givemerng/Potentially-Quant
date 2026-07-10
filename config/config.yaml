@@ -43,3 +43,28 @@ week3:
   save_artifacts: true
   artifact_dir: data/processed/week3
 
+week5:
+  rebalance_frequency: monthly
+  initial_capital: 10000000.0
+  weighting_method: equal_weight_long_only
+  max_position_size: 0.05
+  commission_bps: 5.0
+  bid_ask_spread_bps: 10.0
+  long_only: true
+  net_exposure: 1.0
+  gross_exposure: 1.0
+  save_artifacts: true
+  artifact_dir: data/processed/week5
+
+week6:
+  combination_methods: [ic_weighted, fama_macbeth, xgboost]
+  xgb_n_estimators: 200
+  xgb_max_depth: 4
+  xgb_learning_rate: 0.05
+  xgb_min_train_months: 36
+  xgb_purge_gap_months: 1
+  ic_lookback_months: 36
+  oos_start_date: "2010-01-01"
+  save_artifacts: true
+  artifact_dir: data/processed/week6
+

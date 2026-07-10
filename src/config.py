@@ -43,6 +43,35 @@ class Week3Config(BaseModel):
     artifact_dir: str = "data/processed/week3"
 
 
+class Week5Config(BaseModel):
+    rebalance_frequency: str = Field(default="monthly", pattern="^(daily|monthly)$")
+    initial_capital: float = Field(default=10000000.0, ge=0.0)
+    weighting_method: str = Field(default="equal_weight_long_only", pattern="^(equal_weight_long_only|equal_weight_long_short)$")
+    max_position_size: float = Field(default=0.05, ge=0.0, le=1.0)
+    commission_bps: float = Field(default=5.0, ge=0.0)
+    bid_ask_spread_bps: float = Field(default=10.0, ge=0.0)
+    long_only: bool = True
+    net_exposure: float = Field(default=1.0, ge=0.0)
+    gross_exposure: float = Field(default=1.0, ge=0.0)
+    save_artifacts: bool = True
+    artifact_dir: str = "data/processed/week5"
+
+
+class Week6Config(BaseModel):
+    """Configuration for Week 6 Factor Combination & ML Integration."""
+
+    combination_methods: List[str] = Field(default_factory=lambda: ["ic_weighted", "fama_macbeth", "xgboost"])
+    xgb_n_estimators: int = Field(default=200, ge=10)
+    xgb_max_depth: int = Field(default=4, ge=1, le=10)
+    xgb_learning_rate: float = Field(default=0.05, ge=0.001, le=1.0)
+    xgb_min_train_months: int = Field(default=36, ge=12)
+    xgb_purge_gap_months: int = Field(default=1, ge=0)
+    ic_lookback_months: int = Field(default=36, ge=6)
+    oos_start_date: str = Field(default="2010-01-01")
+    save_artifacts: bool = True
+    artifact_dir: str = "data/processed/week6"
+
+
 class LoggingConfig(BaseModel):
     level: str = "INFO"
     file: str = "logs/pipeline.log"
@@ -60,6 +89,8 @@ class AppConfig(BaseModel):
     universe_filter: UniverseFilterConfig = Field(default_factory=UniverseFilterConfig)
     week2: Week2Config = Field(default_factory=Week2Config)
     week3: Week3Config = Field(default_factory=Week3Config)
+    week5: Week5Config = Field(default_factory=Week5Config)
+    week6: Week6Config = Field(default_factory=Week6Config)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
 
 

@@ -2,6 +2,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from sqlalchemy import text
+from joblib import Parallel, delayed
 
 from src.config import AppConfig
 from src.data.db import get_engine, factors_table, factor_metrics_table, upsert_rows
@@ -12,6 +13,8 @@ from src.factors.universe import UniverseFilter
 from src.factors.neutralization import winsorize_series, z_score_series, neutralize_factor_scores
 from src.factors.library import PriceMomentum, ThreeMonthMomentum, BookToPrice, GrossProfitability, LowVolatility
 from src.factors.evaluation import FactorEvaluator
+from src.backtest.engine import VectorizedBacktester
+from src.backtest.reporting import Reporter
 from src.utils.logger import setup_logger
 
 
@@ -292,9 +295,255 @@ def main() -> None:
 
         logger.info("Saved Week 3 artifacts under %s", artifact_dir)
 
-    print("\nWeek 1 + Week 2 + Week 3 pipeline complete.")
+    logger.info("Starting Week 5 - Portfolio Backtesting Engine")
+    backtester = VectorizedBacktester(
+        initial_capital=config.week5.initial_capital,
+        rebalance_frequency=config.week5.rebalance_frequency,
+        weighting_method=config.week5.weighting_method,
+        max_position_size=config.week5.max_position_size,
+        commission_bps=config.week5.commission_bps,
+        bid_ask_spread_bps=config.week5.bid_ask_spread_bps,
+        long_only=config.week5.long_only,
+        net_exposure=config.week5.net_exposure,
+        gross_exposure=config.week5.gross_exposure,
+        logger=logger,
+    )
+    reporter = Reporter(logger=logger)
+    backtest_summaries = []
 
+    # Run backtests for all calculated factors
+    for factor_name in library.registry.keys():
+        factor_subset = factor_scores_df[factor_scores_df["factor_name"] == factor_name]
+        if factor_subset.empty:
+            continue
+
+        backtest_name = f"{factor_name}_{config.week5.weighting_method}"
+
+        # Run portfolio simulation
+        summary = backtester.run(
+            factor_scores_df=factor_subset,
+            returns_df=monthly_returns.reset_index(),
+            universe_membership_df=stored_membership,
+            backtest_name=backtest_name,
+        )
+
+        if summary:
+            # Save results to PostgreSQL database
+            backtester.save_results(engine=engine, run_summary=summary)
+
+            # Generate and save report artifacts (CSVs, markdown summary, plots)
+            if config.week5.save_artifacts:
+                factor_artifact_dir = Path(config.week5.artifact_dir) / factor_name
+                reporter.generate_report(run_summary=summary, artifact_dir=factor_artifact_dir)
+
+            backtest_summaries.append({
+                "factor_name": factor_name,
+                "cumulative_return_net": summary["metrics"].get("cumulative_return_net"),
+                "sharpe_ratio": summary["metrics"].get("sharpe_ratio"),
+                "max_drawdown": summary["metrics"].get("max_drawdown"),
+                "annualized_turnover": summary["metrics"].get("annualized_turnover"),
+            })
+
+    if backtest_summaries:
+        backtest_summary_df = pd.DataFrame(backtest_summaries)
+        print("\n=== Week 5 - Vectorized Backtest Summary ===")
+        print(backtest_summary_df.to_string(index=False))
+
+        if config.week5.save_artifacts:
+            backtest_summary_df.to_csv(Path(config.week5.artifact_dir) / "backtest_performance_summary.csv", index=False)
+
+    # ======================================================================
+    # Week 6 – Factor Combination & ML Integration
+    # ======================================================================
+    logger.info("Starting Week 6 - Factor Combination & ML Integration")
+
+    from src.combination.preprocessing import FeaturePreprocessor
+    from src.combination.ic_weighted import ICWeightedComposite
+    from src.combination.fama_macbeth import FamaMacBethComposite
+    from src.combination.xgboost_composite import XGBoostComposite
+    from src.combination.shap_analysis import SHAPAnalyzer
+    from src.combination.reporting import Week6Reporter
+    from src.data.db import (
+        combination_runs_table,
+        composite_scores_table,
+        combination_weights_table,
+        combination_metrics_table,
+    )
+
+    week6_config = config.week6.model_dump()
+
+    # 1. Prepare shared feature matrix from factor scores + monthly returns
+    preprocessor = FeaturePreprocessor(logger=logger)
+    monthly_returns_reset = monthly_returns.reset_index()
+    monthly_returns_reset["date"] = pd.to_datetime(monthly_returns_reset["date"])
+
+    try:
+        feature_panel, fwd_returns, eval_dates, factor_names = preprocessor.prepare(
+            factor_scores_df=factor_scores_df,
+            returns_df=monthly_returns_reset,
+            score_column="final_score",
+        )
+    except ValueError as exc:
+        logger.error("Cannot run Week 6: %s", exc)
+        print("\nWeek 1 + Week 2 + Week 3 + Week 4 + Week 5 pipeline complete.")
+        return
+
+    # 2. Determine OOS boundary
+    oos_start = pd.Timestamp(config.week6.oos_start_date)
+    oos_dates = [d for d in eval_dates if d >= oos_start]
+    logger.info("Week 6: %d total eval dates, %d OOS dates (>= %s)",
+                len(eval_dates), len(oos_dates), oos_start.date())
+
+    # 3. Run each combination method
+    composite_methods = {
+        "ic_weighted": ICWeightedComposite(logger=logger),
+        "fama_macbeth": FamaMacBethComposite(logger=logger),
+        "xgboost": XGBoostComposite(logger=logger),
+    }
+
+    week6_reporter = Week6Reporter(logger=logger)
+    method_all_scores: dict = {}
+    method_metrics: dict = {}
+
+    for method_name in config.week6.combination_methods:
+        if method_name not in composite_methods:
+            logger.warning("Unknown combination method: %s", method_name)
+            continue
+
+        model = composite_methods[method_name]
+        model._generate_run_id(week6_config)
+        logger.info("Running %s composite (run_id=%s)", method_name, model.run_id)
+
+        all_composite_scores = []
+
+        for eval_date in eval_dates[:-1]:  # skip last date (no forward return)
+            model.fit(feature_panel, fwd_returns, eval_date, week6_config)
+            preds = model.predict(feature_panel, eval_date)
+            if preds.empty:
+                continue
+
+            for ticker, score in preds.items():
+                all_composite_scores.append({
+                    "date": eval_date,
+                    "ticker": ticker,
+                    "factor_name": f"{method_name}_composite",
+                    "raw_score": float(score) if pd.notna(score) else None,
+                    "final_score": float(score) if pd.notna(score) else None,
+                })
+
+        if not all_composite_scores:
+            logger.warning("No composite scores generated for %s", method_name)
+            continue
+
+        composite_df = pd.DataFrame(all_composite_scores)
+        method_all_scores[method_name] = composite_df
+
+        # Save composite scores to DB
+        scores_for_db = composite_df.rename(columns={"final_score": "composite_score"})
+        model.save_composite_scores(engine, scores_for_db[["date", "ticker", "composite_score"]])
+
+        # Save factor weights (IC-weighted and Fama-MacBeth)
+        if hasattr(model, "get_weights_dataframe"):
+            weights_df = model.get_weights_dataframe()
+            if not weights_df.empty:
+                model.save_factor_weights(engine, weights_df)
+                if config.week6.save_artifacts:
+                    week6_reporter.save_factor_weights_csv(
+                        weights_df, method_name, config.week6.artifact_dir)
+
+        # Save FM coefficients
+        if method_name == "fama_macbeth" and hasattr(model, "get_coefficients_dataframe"):
+            coeff_df = model.get_coefficients_dataframe()
+            if not coeff_df.empty and config.week6.save_artifacts:
+                week6_reporter.save_fm_coefficients_csv(coeff_df, config.week6.artifact_dir)
+
+        # Backtest the composite
+        backtest_name = f"{method_name}_composite_{config.week5.weighting_method}"
+        composite_summary = backtester.run(
+            factor_scores_df=composite_df,
+            returns_df=monthly_returns.reset_index(),
+            universe_membership_df=stored_membership,
+            backtest_name=backtest_name,
+        )
+
+        if composite_summary:
+            backtester.save_results(engine=engine, run_summary=composite_summary)
+            full_metrics = composite_summary.get("metrics", {})
+
+            # Compute OOS metrics (filter results to OOS period)
+            oos_metrics = {}
+            if "daily_returns" in composite_summary:
+                oos_rets = composite_summary["daily_returns"]
+                if hasattr(oos_rets, "index"):
+                    oos_mask = oos_rets.index >= oos_start
+                    oos_series = oos_rets.loc[oos_mask]
+                    if len(oos_series) > 0:
+                        from src.backtest.metrics import PortfolioMetrics
+                        pm = PortfolioMetrics()
+                        oos_metrics = pm.compute(oos_series)
+
+            # Save metrics to DB
+            model.save_run_metadata(
+                engine=engine,
+                config=week6_config,
+                train_start=eval_dates[0].date() if eval_dates else None,
+                train_end=eval_dates[-1].date() if eval_dates else None,
+                test_start=oos_dates[0].date() if oos_dates else None,
+                test_end=oos_dates[-1].date() if oos_dates else None,
+            )
+            model.save_metrics(engine, full_metrics, scope="full")
+            if oos_metrics:
+                model.save_metrics(engine, oos_metrics, scope="oos")
+
+            method_metrics[method_name] = {
+                "full_sharpe": full_metrics.get("sharpe_ratio"),
+                "full_max_dd": full_metrics.get("max_drawdown"),
+                "oos_sharpe": oos_metrics.get("sharpe_ratio"),
+                "oos_max_dd": oos_metrics.get("max_drawdown"),
+            }
+
+            # Generate report artifacts
+            if config.week6.save_artifacts:
+                factor_artifact_dir = Path(config.week6.artifact_dir) / method_name
+                reporter.generate_report(run_summary=composite_summary, artifact_dir=factor_artifact_dir)
+
+    # 4. SHAP analysis on XGBoost model
+    if "xgboost" in composite_methods and composite_methods["xgboost"].get_model() is not None:
+        try:
+            xgb_model = composite_methods["xgboost"]
+            analyzer = SHAPAnalyzer(logger=logger)
+            X_latest = feature_panel.loc[eval_dates[-2]]
+            shap_df = analyzer.analyze(xgb_model.get_model(), X_latest, factor_names)
+
+            if config.week6.save_artifacts:
+                artifact_dir = Path(config.week6.artifact_dir)
+                analyzer.save_plots(X_latest, artifact_dir)
+                week6_reporter.save_shap_values_csv(shap_df, artifact_dir)
+
+                # Save model
+                xgb_model.save_model(str(artifact_dir / "xgb_model.json"))
+        except Exception as exc:
+            logger.warning("SHAP analysis failed: %s", exc)
+
+    # 5. Factor correlation matrix (diagnostic, no filtering)
+    if config.week6.save_artifacts:
+        week6_reporter.plot_factor_correlation_matrix(
+            feature_panel, config.week6.artifact_dir)
+
+    # 6. Comparison report
+    if method_metrics and config.week6.save_artifacts:
+        week6_reporter.generate_comparison_report(method_metrics, config.week6.artifact_dir)
+
+    if method_metrics:
+        print("\n=== Week 6 - Composite Method Comparison ===")
+        comp_df = pd.DataFrame([
+            {"method": m, **v} for m, v in method_metrics.items()
+        ])
+        print(comp_df.to_string(index=False))
+
+    print("\nWeek 1 + Week 2 + Week 3 + Week 4 + Week 5 + Week 6 pipeline complete.")
 
 
 if __name__ == "__main__":
     main()
+

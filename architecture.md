@@ -2,7 +2,7 @@
 
 ## Current State
 
-The repository currently implements the full Week 1 data foundation and the core Week 2 research plumbing for the `Regime-Adaptive Multi-Factor Alpha Engine`.
+The repository implements the full Weeks 1-5 scope of the `Regime-Adaptive Multi-Factor Alpha Engine`. This covers data infrastructure (Yahoo Finance, FRED, FF5), returns/universe pipeline, OLS size/sector neutralization, an expanded library of 18 alpha factors, parallelized factor calculation over month-ends, factor evaluation, and a vectorized backtesting engine with linear transaction costs and position/leverage constraints.
 
 The system is structured as a config-driven Python pipeline with PostgreSQL as the system of record.
 
@@ -126,6 +126,26 @@ Implemented tables:
 - Computes time-series IC, aggregate ICIR, quintile simple returns, annualized Sharpe ratios, and decay half-lives
 - Persists all results to `factor_metrics` table
 
+### `src/backtest/`
+
+- **`portfolio.py`**: Converts factor scores into portfolio weights, supports equal-weight long-only and long-short target construction, and handles position limit clipping and redistribution.
+- **`rebalancer.py`**: Filters dates by rebalancing frequency, calculates drifted portfolio weights, and computes rebalance turnover.
+- **`transaction_cost.py`**: Models linear transaction costs (fixed commissions and bid-ask spreads).
+- **`metrics.py`**: Evaluates CAGR, annualized volatility, Sharpe, Sortino, Max Drawdown, Calmar, win rate, and average/annualized turnover.
+- **`reporting.py`**: Generates CSV datasets, monthly/annual returns matrices, MD summaries, and equity/drawdown curve plots.
+- **`engine.py`**: Orchestrates the vectorized simulation loop, aligning data matrices, running historical time-steps, and saving outcomes to the database.
+
+### `src/combination/`
+
+- **`base.py`**: Defines abstract `BaseComposite` class representing a generic factor combination strategy. It handles metadata persistence, rolling weights logging, score persistence, and metric tracking in a structured way.
+- **`preprocessing.py`**: Implements standardized feature preparation pipeline aligning factor score matrices with forward-return vectors, handling gaps and missing data, and enforcing consistent column shapes.
+- **`ic_weighted.py`**: Implements IC-weighted factor combination based on rolling historical Spearman rank correlation.
+- **`fama_macbeth.py`**: Implements Fama-MacBeth two-pass regression combination where rolling cross-sectional betas act as weights.
+- **`xgboost_composite.py`**: Implements walk-forward expanding-window XGBoost regressor composite, retrained at each step to prevent lookahead leakage.
+- **`shap_analysis.py`**: Computes SHAP values and generates beeswarm/summary importance plots for XGBoost model diagnostics.
+- **`reporting.py`**: Week 6 reporter saving method comparisons, rolling weights, and factor correlation matrices.
+
+
 ## Week-by-Week Architecture Status
 
 ### Week 1
@@ -175,17 +195,45 @@ Implemented:
 - factor performance evaluation harness (IC, ICIR, Sharpe, half-life)
 - factor score intermediate stages and time-series metrics persistence
 
-### Week 4+
+### Week 4
+
+Implemented:
+
+- Expanded factor library to 18 active signals (sentiment, technical, macro-linked, earnings momentum SUE, revision, insider trades)
+- Parallel compute pipeline using joblib over month-end evaluation dates
+- Neutralization (Winsorize -> Z-score -> OLS Size & Sector residuals)
+- Factor performance evaluation (rank IC, ICIR, quintile Sharpe, signal decay half-life) and DB caching
+
+### Week 5
+
+Implemented:
+
+- Vectorized simulation engine (`VectorizedBacktester`) that matches dates, checks universes, and computes portfolio states
+- Rebalance schedule filtering and drift-adjusted turnover calculation
+- Linear transaction cost model (fixed commission and spread)
+- Position limit constraints and iterative redistribution logic
+- Independent performance metrics sheet (Sharpe, Sortino, Drawdown, Calmar)
+- DB writers for weights, trades, results, and metrics
+- Automatic report generation (CSVs, tables, equity curves, drawdown plots) under `data/processed/week5/`
+
+### Week 6
+
+Implemented:
+- Abstract `BaseComposite` ABC interface for factor combination methods.
+- Shared `FeaturePreprocessor` pipeline ensuring data parity across models.
+- Three combination strategies: IC-Weighted, Fama-MacBeth OLS, and walk-forward XGBoost.
+- Rolling factor weights and Fama-MacBeth coefficients persistence.
+- Complete OOS (2010-2024) performance evaluation against the full-history baseline.
+- SHAP feature analysis interface + factor correlation diagnostics.
+
+### Week 7+
 
 Not started in architecture terms:
 
-- Week 4+ factor library expansion (SUE, alternative data)
-- backtesting engine (Week 5)
-- XGBoost combo model (Week 6)
 - regime detection (Week 7)
 - adaptive weighting (Week 8)
 - CVaR risk optimization (Week 9)
-- deployment surfaces (Weeks 10-12)
+
 
 ## Artifact Outputs
 
@@ -202,4 +250,19 @@ Current Week 3 factor engine writes:
 
 - `data/processed/week3/factor_scores.csv`
 - `data/processed/week3/factor_evaluation_summary.csv`
+
+Current Week 6 combination engine writes:
+
+- `data/processed/week6/composite_comparison.csv`
+- `data/processed/week6/composite_comparison.md`
+- `data/processed/week6/factor_correlation_matrix.png`
+- `data/processed/week6/factor_weights_ic_weighted.csv`
+- `data/processed/week6/factor_weights_fama_macbeth.csv`
+- `data/processed/week6/fama_macbeth_coefficients.csv`
+- `data/processed/week6/shap_values.csv`
+- `data/processed/week6/shap_summary.png`
+- `data/processed/week6/shap_beeswarm.png`
+- `data/processed/week6/xgb_model.json`
+- `data/processed/week6/{ic_weighted, fama_macbeth, xgboost}/*` backtest reports and plots
+
 

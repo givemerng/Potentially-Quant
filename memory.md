@@ -7,7 +7,11 @@ The repository is at:
 - Week 1: implemented
 - Week 2: core workflow implemented
 - Week 3: factor engine implemented
-- Week 4+: not started
+- Week 4: factor library expanded & parallelized
+- Week 5: vectorized backtesting engine implemented
+- Week 6: factor combination & ML integration implemented
+- Week 7+: not started
+
 
 ## Week 1 Done
 
@@ -44,6 +48,37 @@ The repository is at:
 - Added interactive diagnostic notebook `week3_factor_evaluation.ipynb`
 - Added comprehensive unit tests in `tests/test_factors_week3.py` (all tests passing)
 
+## Week 4 Done
+
+- Expanded the factor library (`src/factors/library.py`) to 18 active signals, covering value (EV/EBITDA, FCF Yield), quality/accruals (Debt/Equity change, Accruals), technicals (1M Reversal, 3M Momentum, Market Beta, Idiosyncratic Volatility), macro exposures (Yield Curve, Credit Spread, PMI Momentum), and alternative/earnings factors (Earnings Surprise SUE, Earnings Revision, Insider Buying).
+- Implemented parallelized factor scoring over historical month-ends in `src/main.py` using joblib.
+- Built test suites in `tests/test_factors_week4.py` (all tests passing).
+- Fixed the missing joblib import in `src/main.py`.
+
+## Week 5 Done
+
+- Created `Week5Config` and added configurable parameters to `config.yaml`
+- Created `PortfolioConstructor` supporting equal-weight long-only and long-short target weight construction and iterative position size limit redistribution
+- Built `Rebalancer` calculating drifted portfolio weights and rebalancing turnovers
+- Created linear transaction cost model (`LinearTransactionCostModel`) using commissions and spread models
+- Built vectorized metrics calculation (`PortfolioMetrics`) for returns, CAGR, volatility, Sharpe, Sortino, max drawdown, and Calmar ratios
+- Created `VectorizedBacktester` simulating weights, trades, net/gross returns, value, and drawdowns, and writing results to database tables (`portfolio_weights`, `trades`, `backtest_results`, `backtest_metrics`)
+- Created `Reporter` generating report CSVs, tables, summaries, and equity/drawdown curve plots under `data/processed/week5/`
+- Added comprehensive unit tests in `tests/test_backtester.py` (all tests passing)
+
+## Week 6 Done
+
+- Integrated `BaseComposite` ABC interface for factor combination algorithms
+- Built standardized `FeaturePreprocessor` pipeline for date alignment, order sorting, and median NaN imputation
+- Implemented `ICWeightedComposite` using rolling trailing Spearman rank correlations (negative ICs zeroed, normalized)
+- Implemented `FamaMacBethComposite` using cross-sectional OLS regressions averaged over time
+- Implemented `XGBoostComposite` using strict walk-forward expanding window regressor (configurable purge gap)
+- Added `SHAPAnalyzer` for explainable AI importance diagnostics (summary & beeswarm plots, exported values)
+- Created `Week6Reporter` generating method comparisons, factor correlations, and rolling weights plots/CSVs
+- Added experiment tracking database tables: `combination_runs`, `composite_scores`, `combination_weights`, and `combination_metrics`
+- Built full diagnostic test suites in `tests/test_combination_week6.py` (all tests passing)
+
+
 ## Current Files That Matter Most
 
 - `src/main.py`
@@ -60,9 +95,26 @@ The repository is at:
 - `src/factors/universe.py`
 - `src/factors/return_matrix.py`
 - `src/factors/analysis.py`
-- `config/config.yaml`
-- `notebooks/week3_factor_evaluation.ipynb`
-- `tests/test_factors_week3.py`
+- config/config.yaml
+- notebooks/week3_factor_evaluation.ipynb
+- src/backtest/engine.py
+- src/backtest/portfolio.py
+- src/backtest/rebalancer.py
+- src/backtest/transaction_cost.py
+- src/backtest/metrics.py
+- src/backtest/reporting.py
+- tests/test_factors_week3.py
+- tests/test_factors_week4.py
+- tests/test_backtester.py
+- src/combination/base.py
+- src/combination/preprocessing.py
+- src/combination/ic_weighted.py
+- src/combination/fama_macbeth.py
+- src/combination/xgboost_composite.py
+- src/combination/shap_analysis.py
+- src/combination/reporting.py
+- tests/test_combination_week6.py
+
 
 ## Known Constraints
 
@@ -86,10 +138,12 @@ The repository is at:
 
 ### If continuing the roadmap
 
-- start Week 4 factor expansion
-- implement Earnings Momentum (SUE)
-- implement macro-exposure signals, EV/EBITDA, Accruals, and insider metrics
-- implement parallel registry class (`FactorLibrary`) using joblib
+- start Week 7 market regime detection with HMM
+- build a regime feature matrix (VIX level, VIX change, yield curve slope (10Y-2Y), credit spread, realized volatility, GDP YoY)
+- fit Hidden Markov Model (`hmmlearn.HMM.GaussianHMM`) with 4 states
+- use Bayesian Information Criterion (BIC) to select the optimal number of states
+- visualize SPX price chart with regime probabilities overlaid, and verify economic alignments
+
 
 ### Before deeper feature work
 

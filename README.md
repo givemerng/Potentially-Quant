@@ -1,14 +1,47 @@
 # Regime-Adaptive Multi-Factor Alpha Engine
 
-This repository currently covers the **Week 1 foundation**, **Week 2 returns and universe workflow**, and the **Week 3 factor engineering foundation** from the 12-week implementation plan.
+## What This Project Does
 
-The project ingests historical equity OHLCV data from Yahoo Finance, macro series from FRED, stores both in PostgreSQL with idempotent upserts, computes daily and monthly returns, builds a point-in-time universe membership table, and runs a modular, config-driven factor calculation, neutralization, and evaluation pipeline.
+### The Core Idea
+
+In quantitative investing, **factors** (signals like momentum, value, quality) are used to rank and select stocks. The problem is that not all factors work all the time:
+
+- During a **bull market**, momentum signals work great — stocks that have been rising tend to keep rising.
+- During a **crash** (2008, COVID), momentum gets destroyed, but "cheap" value stocks and low-volatility stocks tend to hold up better.
+
+Most quant systems ignore this and treat every signal equally all the time. This project says: **detect what kind of market we're in, and adjust which signals we trust accordingly.**
+
+### How It Works
+
+1. **Get the Data** — Download historical stock prices (S&P 500, 2000–present) from Yahoo Finance and macroeconomic data from FRED. Store everything in PostgreSQL.
+2. **Score Every Stock Each Month** — Compute 18 different factor scores (momentum, value, quality, sentiment, macro exposure, etc.) for every stock, then clean them by removing size and sector biases.
+3. **Detect the Market Regime** *(Weeks 7–8)* — Use a Hidden Markov Model (HMM) to classify the market into states (bull, bear, high-vol, rate-shock) and dynamically adjust factor weights based on which factors historically perform best in the current regime.
+4. **Build a Portfolio & Simulate Trading** — Convert factor scores into portfolio weights, simulate trading with realistic transaction costs (commissions, spreads, turnover), and measure performance (Sharpe, Sortino, Max Drawdown, Calmar).
+
+### The Research Question
+
+> **Can a system that detects the market regime and adapts its factor weights beat a system that treats all factors equally?**
+
+The target is a **net Sharpe ratio > 0.8** on 2010–2024 out-of-sample data, proving that regime-adaptive weighting outperforms static equal-weight composites even after realistic trading costs.
+
+### Tech Stack
+
+Python · Pandas · NumPy · scikit-learn · hmmlearn · XGBoost · CVXPY · statsmodels · FastAPI · PostgreSQL · Redis · Streamlit · Docker
+
+---
+
+This repository covers **Weeks 1 to 6** of the 12-week implementation plan.
+
+The project ingests historical equity OHLCV data from Yahoo Finance, macro series from FRED, stores both in PostgreSQL with idempotent upserts, computes daily and monthly returns, builds a point-in-time universe membership table, and runs a parallel config-driven factor calculation, neutralization, evaluation, and vectorized backtesting pipeline.
 
 ## Implemented Scope
 
 - **Week 1**: Config-driven ingestion pipeline, PostgreSQL schema and upserts, centralized logging, and reproducible entrypoint.
 - **Week 2**: Daily and monthly return calculation, point-in-time universe membership filtering, return matrix construction/masking, and cross-sectional / annual distribution diagnostics.
 - **Week 3**: Abstract base alpha class, 5 base factors (Price Momentum, 3-Month Momentum, Book-to-Price, Gross Profitability, Low Volatility), winsorization/Z-score normalization, statsmodels OLS size/sector neutralization, and factor evaluation harness (time-series IC, ICIR, Quintile Sharpe, autocorrelation decay half-life).
+- **Week 4**: Expanded factor library to 18 active signals (sentiment, technical, macro-linked, revisions, insider transactions) computed in parallel with joblib over historical month-ends, cached in PostgreSQL, and evaluated for rank IC/ICIR, Sharpe, and signal decay.
+- **Week 5**: Vectorized portfolio backtesting engine supporting commissions and bid-ask spread models, equal-weight long-only and long-short target weight construction, position limit clipping/redistribution, performance metrics calculations (Sharpe, Sortino, Max Drawdown, Calmar, win rate, turnover), database persistence, and reporting layouts (monthly/annual grids, equity curves, drawdown charts).
+- **Week 6**: Factor combination and ML integration with three composite strategies (IC-weighted, Fama-MacBeth OLS, XGBoost walk-forward), `BaseComposite` ABC interface, shared feature preprocessing pipeline, experiment tracking with `combination_runs` table, rolling factor weight persistence, SHAP feature importance analysis, factor correlation diagnostics, and dual metric reporting (full + OOS 2010–2024).
 
 ## Repository Layout
 
@@ -27,9 +60,17 @@ The project ingests historical equity OHLCV data from Yahoo Finance, macro serie
 - `src/factors/universe.py`: Point-in-time universe construction
 - `src/factors/return_matrix.py`: Return matrix helpers for masking and distribution stats
 - `src/factors/analysis.py`: Week 2 return-matrix analysis and artifact generation
-- `src/main.py`: Orchestrates the entire Week 1, 2, and 3 quant pipeline
+- `src/backtest/`: Week 5 vectorized portfolio backtesting engine, rebalancer, metrics, transaction costs, and reporting modules
+- `src/combination/base.py`: Abstract `BaseComposite` class with experiment tracking and DB persistence helpers
+- `src/combination/preprocessing.py`: Shared feature preparation pipeline (date alignment, NaN handling, consistent ordering)
+- `src/combination/ic_weighted.py`: IC-weighted composite strategy using trailing rolling Spearman IC
+- `src/combination/fama_macbeth.py`: Fama-MacBeth two-pass OLS composite strategy
+- `src/combination/xgboost_composite.py`: XGBoost walk-forward expanding-window composite strategy
+- `src/combination/shap_analysis.py`: SHAP feature importance analysis for XGBoost model
+- `src/combination/reporting.py`: Week 6 comparison reports, factor weight CSVs, and diagnostic plots
+- `src/main.py`: Orchestrates the entire quant pipeline (Weeks 1 to 6)
 - `notebooks/week3_factor_evaluation.ipynb`: Diagnostic notebook for raw vs. final factor IC, rolling stats, quintile returns, and decay curves
-- `tests/`: Focused unit tests covering all components, including test_factors_week3.py
+- `tests/`: Focused unit tests covering all components, including test_factors_week3.py, test_factors_week4.py, test_backtester.py, and test_combination_week6.py
 
 ## Database Tables
 
@@ -42,6 +83,10 @@ The project ingests historical equity OHLCV data from Yahoo Finance, macro serie
 - `factors`: Raw, winsorized, z-score, and neutralized scores by `date, ticker, factor_name`
 - `factor_metrics`: Time-series and summary performance metrics (IC, ICIR, Sharpe, decay) by `date, factor_name, stage, metric_name`
 - `fama_french`: Daily Fama-French 5-factor returns by `date`
+- `combination_runs`: Experiment tracking with `run_id`, method, config hash, train/test windows, and timestamp
+- `composite_scores`: Composite signal scores by `date, ticker, method` linked to `run_id`
+- `combination_weights`: Rolling factor weights by `date, factor_name, method` linked to `run_id`
+- `combination_metrics`: Performance metrics by `run_id, method, metric_name` with `full` and `oos` scopes
 
 ## Run
 
@@ -69,6 +114,19 @@ This will:
 - build the Week 2 return matrix
 - generate cross-sectional stats and annual fat-tail diagnostics
 - write processed artifacts under `data/processed/week2`
+- compute 18 alpha factors in parallel using joblib over month-end dates
+- winsorize, Z-score standardize, and OLS neutralize factor scores by sector and size
+- evaluate rank IC/ICIR, quintile Sharpe ratios, and signal decay half-lives
+- write evaluation results to database tables (`factors`, `factor_metrics`) and CSV files under `data/processed/week3`
+- run vectorized backtests for all factors, enforcing position limits and exposures
+- apply linear transaction costs (commissions and spreads) and rebalancing turnover tracking
+- save weights, trades, results, and metrics to database tables (`portfolio_weights`, `trades`, `backtest_results`, `backtest_metrics`)
+- output backtest reports (CSVs, markdown summary matrices, performance plots) under `data/processed/week5/`
+- prepare shared feature matrix from all 18 neutralized factor scores
+- run three composite strategies: IC-weighted, Fama-MacBeth OLS, and XGBoost walk-forward
+- backtest each composite through the Week 5 engine and compare full vs. OOS (2010–2024) performance
+- run SHAP feature importance analysis on the XGBoost model
+- generate factor correlation matrix, composite comparison tables, and SHAP plots under `data/processed/week6/`
 
 ## Week 2 Artifacts
 
@@ -87,12 +145,9 @@ Set `rebuild_on_run: true` in `config/config.yaml` to drop and recreate the trac
 
 ## Not Yet Implemented
 
-- Week 4+ factor expansion (SUE, alternative sentiment, macro-linked factors, Edgar data)
-- Backtesting engine (Week 5)
-- XGBoost combination model & ML integration (Week 6)
 - Hidden Markov Model (HMM) regime detection (Week 7)
 - Regime-adaptive weighted composite model (Week 8)
-- CVaR portfolio optimization (Week 9)
+- CVaR portfolio risk optimization (Week 9)
 - API, dashboard, and deployment layers (Weeks 10-12)
 
 ## Reproducibility Notes
