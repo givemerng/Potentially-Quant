@@ -18,5 +18,6 @@ xgboost>=2.0.0
 shap>=0.45.0
 scikit-learn>=1.5.0
 joblib>=1.4.0
+hmmlearn>=0.3.2
 
 

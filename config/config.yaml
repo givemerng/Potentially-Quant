@@ -70,3 +70,13 @@ week6:
   save_artifacts: true
   artifact_dir: data/processed/week6
 
+week7:
+  n_components: 4
+  covariance_type: "full"
+  n_iter: 100
+  random_state: 42
+  bic_selection: true
+  max_bic_components: 6
+  save_artifacts: true
+  artifact_dir: data/processed/week7
+

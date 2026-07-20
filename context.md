@@ -4,7 +4,7 @@
 
 `Regime-Adaptive Multi-Factor Alpha Engine`
 
-This repository follows a 12-week quant research build plan. The current codebase has completed the main Week 1 foundation work, the core Week 2 return and universe workflow, the Week 3 factor engineering foundation, the Week 4 factor library expansion, the Week 5 vectorized portfolio backtesting engine, and the Week 6 factor combination & ML integration.
+This repository follows a 12-week quant research build plan. The current codebase has completed the main Week 1 foundation work, the core Week 2 return and universe workflow, the Week 3 factor engineering foundation, the Week 4 factor library expansion, the Week 5 vectorized portfolio backtesting engine, the Week 6 factor combination & ML integration, and the Week 7 market regime detection with HMM.
 
 ## Objective of Current Build
 
@@ -84,6 +84,20 @@ The current implementation establishes the research data backbone and the alpha 
 - Extended database schema with `combination_runs`, `composite_scores`, `combination_weights`, and `combination_metrics` tables
 - Built comprehensive test suite in `tests/test_combination_week6.py` (all tests passing)
 
+### Week 7
+
+- Created `Week7Config` Pydantic model and updated `config.yaml` with HMM hyperparameters (`n_components`, `covariance_type`, `bic_selection`, `max_bic_components`)
+- Implemented `MarketRegimeDetector` class in `src/regime/detector.py`
+- Built 7-feature macro/market panel from daily prices and FRED economic data
+- Implemented Gaussian HMM fitting (`GaussianHMM`) and soft posterior probability generation
+- Implemented BIC model selection over state counts 2 through 6
+- Automated economic regime labeling (Bull Market, Bear / High-Vol, Rate Shock / Stagnation, Neutral / Transition)
+- Computed state transition matrices and average regime durations
+- Created visualization utilities in `src/regime/visualization.py` (SPX regime shading overlay, transition heatmaps, feature profiles)
+- Added `market_regimes` database table and upsert logic
+- Integrated Stage 7 pipeline into `src/main.py`
+- Created comprehensive unit test suite in `tests/test_regime_week7.py` (all tests passing)
+
 
 ## What Is Not Done Yet
 
@@ -92,9 +106,8 @@ The current implementation establishes the research data backbone and the alpha 
 - no runtime-verified end-to-end DB execution has been completed in this session (requires active local PostgreSQL)
 - no CI workflow exists yet
 
-### Week 7 and beyond
+### Week 8 and beyond
 
-- HMM regime detection (Week 7)
 - regime-adaptive weighting (Week 8)
 - CVaR portfolio risk optimization (Week 9)
 - dashboard and deployment (Weeks 10-12)

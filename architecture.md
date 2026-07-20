@@ -2,7 +2,7 @@
 
 ## Current State
 
-The repository implements the full Weeks 1-5 scope of the `Regime-Adaptive Multi-Factor Alpha Engine`. This covers data infrastructure (Yahoo Finance, FRED, FF5), returns/universe pipeline, OLS size/sector neutralization, an expanded library of 18 alpha factors, parallelized factor calculation over month-ends, factor evaluation, and a vectorized backtesting engine with linear transaction costs and position/leverage constraints.
+The repository implements the full Weeks 1-7 scope of the `Regime-Adaptive Multi-Factor Alpha Engine`. This covers data infrastructure (Yahoo Finance, FRED, FF5), returns/universe pipeline, OLS size/sector neutralization, an expanded library of 18 alpha factors, parallelized factor calculation over month-ends, factor evaluation, vectorized backtesting engine with transaction costs, factor combination & ML integration (IC-weighted, Fama-MacBeth, XGBoost), and Gaussian HMM market regime detection.
 
 The system is structured as a config-driven Python pipeline with PostgreSQL as the system of record.
 
@@ -226,12 +226,23 @@ Implemented:
 - Complete OOS (2010-2024) performance evaluation against the full-history baseline.
 - SHAP feature analysis interface + factor correlation diagnostics.
 
-### Week 7+
+### Week 7
+
+Implemented:
+- 7-feature macro/market panel construction (VIX level/change, yield curve slope, credit spread, SPX 12M momentum, 21D realized vol, GDP YoY growth)
+- Gaussian HMM training (`hmmlearn.hmm.GaussianHMM`) with 4 states and soft posterior state probabilities (`predict_proba`)
+- BIC model selection evaluating 2 to 6 components
+- Automatic economic regime labeling (Bull Market, Bear / High-Vol, Rate Shock / Stagnation, Neutral / Transition)
+- State transition matrix $P_{ij}$ and expected state duration ($1 / (1 - P_{ii})$) calculation
+- `market_regimes` table in PostgreSQL with date, regime_id, regime_label, and prob_0 to prob_3 soft probabilities
+- Diagnostic plotting routines for SPX regime overlay shading, transition matrix heatmaps, and feature profile bar charts
+- Comprehensive unit test suite in `tests/test_regime_week7.py`
+
+### Week 8+
 
 Not started in architecture terms:
 
-- regime detection (Week 7)
-- adaptive weighting (Week 8)
+- regime-adaptive weighting (Week 8)
 - CVaR risk optimization (Week 9)
 
 
@@ -264,5 +275,11 @@ Current Week 6 combination engine writes:
 - `data/processed/week6/shap_beeswarm.png`
 - `data/processed/week6/xgb_model.json`
 - `data/processed/week6/{ic_weighted, fama_macbeth, xgboost}/*` backtest reports and plots
+
+Current Week 7 regime engine writes:
+
+- `data/processed/week7/spx_regimes.png`
+- `data/processed/week7/transition_matrix.png`
+- `data/processed/week7/feature_profiles.png`
 
 

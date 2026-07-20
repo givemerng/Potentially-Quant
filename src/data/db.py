@@ -219,6 +219,18 @@ combination_metrics_table = Table(
     Column("value", Float),
 )
 
+market_regimes_table = Table(
+    "market_regimes",
+    metadata,
+    Column("date", Date, primary_key=True, nullable=False),
+    Column("regime_id", Integer, nullable=False),
+    Column("regime_label", String(32)),
+    Column("prob_0", Float),
+    Column("prob_1", Float),
+    Column("prob_2", Float),
+    Column("prob_3", Float),
+)
+
 
 
 

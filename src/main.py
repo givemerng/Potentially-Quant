@@ -15,6 +15,12 @@ from src.factors.library import FactorLibrary
 from src.factors.evaluation import FactorEvaluator
 from src.backtest.engine import VectorizedBacktester
 from src.backtest.reporting import Reporter
+from src.regime import (
+    MarketRegimeDetector,
+    plot_spx_with_regimes,
+    plot_transition_matrix,
+    plot_regime_feature_profiles,
+)
 from src.utils.logger import setup_logger
 
 
@@ -508,7 +514,48 @@ def main() -> None:
         ])
         print(comp_df.to_string(index=False))
 
-    print("\nWeek 1 + Week 2 + Week 3 + Week 4 + Week 5 + Week 6 pipeline complete.")
+    # === STAGE 7: Week 7 - Market Regime Detection with HMM ===
+    logger.info("Starting Stage 7: Market Regime Detection with HMM...")
+    try:
+        fred_df = pd.read_sql(text("SELECT * FROM fred_macro"), engine)
+        if not fred_df.empty and "date" in fred_df.columns:
+            fred_df["date"] = pd.to_datetime(fred_df["date"])
+    except Exception as exc:
+        logger.warning("Failed to load FRED data for regime detection: %s", exc)
+        fred_df = None
+
+    regime_detector = MarketRegimeDetector(
+        n_components=config.week7.n_components,
+        covariance_type=config.week7.covariance_type,
+        n_iter=config.week7.n_iter,
+        random_state=config.week7.random_state,
+    )
+
+    regime_features = regime_detector.build_feature_matrix(daily_prices, fred_df)
+
+    if config.week7.bic_selection:
+        bic_res = regime_detector.select_optimal_states(
+            regime_features, max_states=config.week7.max_bic_components
+        )
+        logger.info("BIC state selection results: %s", bic_res)
+
+    state_series, prob_df = regime_detector.fit(regime_features)
+    regime_df = prob_df.copy()
+    regime_df["regime_id"] = state_series
+    regime_df["regime_label"] = state_series.map(regime_detector.regime_labels)
+
+    regime_detector.save_to_db(engine, regime_df)
+
+    if config.week7.save_artifacts:
+        w7_dir = Path(config.week7.artifact_dir)
+        w7_dir.mkdir(parents=True, exist_ok=True)
+        plot_spx_with_regimes(daily_prices, regime_df, regime_detector.regime_labels, save_path=w7_dir / "spx_regimes.png")
+        trans_df, dur_series = regime_detector.compute_transition_matrix()
+        plot_transition_matrix(trans_df, save_path=w7_dir / "transition_matrix.png")
+        plot_regime_feature_profiles(regime_features, state_series, regime_detector.regime_labels, save_path=w7_dir / "feature_profiles.png")
+        logger.info("Week 7 regime artifacts saved to %s", w7_dir)
+
+    print("\nWeek 1 + Week 2 + Week 3 + Week 4 + Week 5 + Week 6 + Week 7 pipeline complete.")
 
 
 if __name__ == "__main__":

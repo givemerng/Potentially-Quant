@@ -72,6 +72,19 @@ class Week6Config(BaseModel):
     artifact_dir: str = "data/processed/week6"
 
 
+class Week7Config(BaseModel):
+    """Configuration for Week 7 Market Regime Detection with HMM."""
+
+    n_components: int = Field(default=4, ge=2, le=10)
+    covariance_type: str = Field(default="full", pattern="^(full|tied|diag|spherical)$")
+    n_iter: int = Field(default=100, ge=10)
+    random_state: int = Field(default=42)
+    bic_selection: bool = True
+    max_bic_components: int = Field(default=6, ge=3, le=12)
+    save_artifacts: bool = True
+    artifact_dir: str = "data/processed/week7"
+
+
 class LoggingConfig(BaseModel):
     level: str = "INFO"
     file: str = "logs/pipeline.log"
@@ -91,6 +104,7 @@ class AppConfig(BaseModel):
     week3: Week3Config = Field(default_factory=Week3Config)
     week5: Week5Config = Field(default_factory=Week5Config)
     week6: Week6Config = Field(default_factory=Week6Config)
+    week7: Week7Config = Field(default_factory=Week7Config)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
 
 

@@ -10,7 +10,8 @@ The repository is at:
 - Week 4: factor library expanded & parallelized
 - Week 5: vectorized backtesting engine implemented
 - Week 6: factor combination & ML integration implemented
-- Week 7+: not started
+- Week 7: HMM market regime detection implemented
+- Week 8+: not started
 
 
 ## Week 1 Done
@@ -78,12 +79,23 @@ The repository is at:
 - Added experiment tracking database tables: `combination_runs`, `composite_scores`, `combination_weights`, and `combination_metrics`
 - Built full diagnostic test suites in `tests/test_combination_week6.py` (all tests passing)
 
+## Week 7 Done
+
+- Added `Week7Config` and updated `config/config.yaml`
+- Created `market_regimes` table in `src/data/db.py` to persist regime assignments, economic labels, and soft posterior probabilities (`prob_0` to `prob_3`)
+- Implemented `MarketRegimeDetector` in `src/regime/detector.py` (7-feature macro/market panel, 4-state `GaussianHMM`, BIC selection, economic regime labeling, state transition matrices, and DB upsert)
+- Created visualization utilities in `src/regime/visualization.py` (SPX price chart with regime overlay shading, transition matrix heatmaps, feature profiles)
+- Integrated Stage 7 pipeline step into `src/main.py`
+- Created comprehensive unit tests in `tests/test_regime_week7.py` (7/7 passed)
+
 
 ## Current Files That Matter Most
 
 - `src/main.py`
 - `src/config.py`
 - `src/data/db.py`
+- `src/regime/detector.py`
+- `src/regime/visualization.py`
 - `src/data/ingestion.py`
 - `src/data/downloader.py`
 - `src/data/fama_french_client.py`
@@ -106,6 +118,8 @@ The repository is at:
 - tests/test_factors_week3.py
 - tests/test_factors_week4.py
 - tests/test_backtester.py
+- tests/test_combination_week6.py
+- tests/test_regime_week7.py
 - src/combination/base.py
 - src/combination/preprocessing.py
 - src/combination/ic_weighted.py
