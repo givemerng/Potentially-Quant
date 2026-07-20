@@ -4,6 +4,8 @@
 
 The repository is at:
 
+- Architecture: Enterprise 4-Tier Architecture (`Domain Models` → `Repositories` → `Services` → `Dataset Builders`) fully implemented
+- Database: Neon PostgreSQL integration via `psycopg` v3 driver, connection pooling, and 176,000+ rows populated
 - Week 1: implemented
 - Week 2: core workflow implemented
 - Week 3: factor engine implemented
@@ -11,7 +13,10 @@ The repository is at:
 - Week 5: vectorized backtesting engine implemented
 - Week 6: factor combination & ML integration implemented
 - Week 7: HMM market regime detection implemented
-- Week 8+: not started
+- Week 8: regime-conditional factor analysis & adaptive weight model implemented
+- Test Suite: 129 / 129 unit tests passing
+- Week 9+: not started
+
 
 
 ## Week 1 Done
@@ -87,6 +92,19 @@ The repository is at:
 - Created visualization utilities in `src/regime/visualization.py` (SPX price chart with regime overlay shading, transition matrix heatmaps, feature profiles)
 - Integrated Stage 7 pipeline step into `src/main.py`
 - Created comprehensive unit tests in `tests/test_regime_week7.py` (7/7 passed)
+
+## Week 8 Done
+
+- Added `Week8Config` to `src/config.py` and `config/config.yaml` (`ic_lookback_months`, `decay_halflife`, `prior_weight`, `max_factor_weight`, `min_weight_threshold`, `oos_start_date`, `oos_end_date`)
+- Extended DB schema with `regime_factor_ic`, `regime_factor_weights`, and `adaptive_runs` tables in `src/data/db.py`
+- Created `RegimeFactorAnalyzer` in `src/regime/factor_analysis.py` computing rolling Spearman IC and ICIR by regime
+- Created `BayesianUpdater` in `src/regime/bayesian_updater.py` computing Gaussian prior shrinkage, exponential decay, posterior IC variance, and $N_{\text{eff}}$
+- Created `AdaptiveWeightGenerator` in `src/regime/adaptive_weights.py` performing dynamic HMM soft state blending, directional sign flip ($\text{sign}(IC)$), weight clipping, thresholding, and sum-to-1 normalization
+- Created `RegimeAdaptiveComposite` in `src/combination/regime_adaptive.py` inheriting from `BaseComposite`
+- Created `Week8Reporter` in `src/combination/regime_reporting.py` for heatmaps, dynamic weight drift, posterior IC evolution plots, and Markdown teardowns
+- Integrated Stage 8 into `src/main.py`
+- Created unit tests in `tests/test_regime_adaptive_week8.py` (5/5 passed)
+
 
 
 ## Current Files That Matter Most

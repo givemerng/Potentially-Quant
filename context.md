@@ -4,15 +4,18 @@
 
 `Regime-Adaptive Multi-Factor Alpha Engine`
 
-This repository follows a 12-week quant research build plan. The current codebase has completed the main Week 1 foundation work, the core Week 2 return and universe workflow, the Week 3 factor engineering foundation, the Week 4 factor library expansion, the Week 5 vectorized portfolio backtesting engine, the Week 6 factor combination & ML integration, and the Week 7 market regime detection with HMM.
+This repository follows a 12-week quant research build plan. The codebase implements Weeks 1-8 scope refactored into an enterprise **4-Tier Architecture** (`Domain Models` → `Repositories` → `Services` → `Dataset Builders`) backed by **Neon PostgreSQL** via `psycopg` (v3).
 
 ## Objective of Current Build
 
-The current implementation establishes the research data backbone and the alpha factor framework:
+The implementation establishes the research data backbone, repository abstractions, service layer, and alpha factor framework:
 
 - ingest historical equity OHLCV data and macroeconomic time series
 - ingest stock metadata (sector, industry, shares) and quarterly financials (Book Value, Gross Profit, Assets, EPS)
-- persist all data points in PostgreSQL with idempotent upserts
+- persist all data points in Neon PostgreSQL with idempotent, batched upserts (`psycopg` v3)
+- abstract database interactions into repository interfaces (`PricesRepository`, `MetadataRepository`, `FundamentalsRepository`, `FactorsRepository`, `RegimesRepository`, `PortfolioRepository`) and generic `BaseRepository`
+- provide domain service layer (`MarketDataService`, `FactorService`, `RegimeService`, `PortfolioService`)
+- assemble ML datasets via specialized builders (`MLDatasetBuilder`, `HMMDatasetBuilder`, `FactorDatasetBuilder`, `BacktestDatasetBuilder`)
 - compute point-in-time universe, returns, and wide return matrices
 - calculate raw and neutralized factor scores (winsorized, z-scored, and size/sector neutralized)
 - evaluate factor performance (Spearman IC, Quintile Sharpe, signal decay) and save time-series and aggregate metrics
@@ -84,19 +87,17 @@ The current implementation establishes the research data backbone and the alpha 
 - Extended database schema with `combination_runs`, `composite_scores`, `combination_weights`, and `combination_metrics` tables
 - Built comprehensive test suite in `tests/test_combination_week6.py` (all tests passing)
 
-### Week 7
+### Week 8
 
-- Created `Week7Config` Pydantic model and updated `config.yaml` with HMM hyperparameters (`n_components`, `covariance_type`, `bic_selection`, `max_bic_components`)
-- Implemented `MarketRegimeDetector` class in `src/regime/detector.py`
-- Built 7-feature macro/market panel from daily prices and FRED economic data
-- Implemented Gaussian HMM fitting (`GaussianHMM`) and soft posterior probability generation
-- Implemented BIC model selection over state counts 2 through 6
-- Automated economic regime labeling (Bull Market, Bear / High-Vol, Rate Shock / Stagnation, Neutral / Transition)
-- Computed state transition matrices and average regime durations
-- Created visualization utilities in `src/regime/visualization.py` (SPX regime shading overlay, transition heatmaps, feature profiles)
-- Added `market_regimes` database table and upsert logic
-- Integrated Stage 7 pipeline into `src/main.py`
-- Created comprehensive unit test suite in `tests/test_regime_week7.py` (all tests passing)
+- Created `Week8Config` Pydantic model and updated `config.yaml` with parameters (`ic_lookback_months`, `decay_halflife`, `prior_weight`, `max_factor_weight`, `min_weight_threshold`, `oos_start_date`, `oos_end_date`)
+- Extended SQLAlchemy schema with `regime_factor_ic`, `regime_factor_weights`, and `adaptive_runs` tables in `src/data/db.py`
+- Implemented `RegimeFactorAnalyzer` in `src/regime/factor_analysis.py` for rolling Spearman IC and rolling ICIR by regime
+- Implemented `BayesianUpdater` in `src/regime/bayesian_updater.py` for Gaussian prior shrinkage, exponential decay, posterior IC variance, and $N_{\text{eff}}$
+- Implemented `AdaptiveWeightGenerator` in `src/regime/adaptive_weights.py` for dynamic HMM soft state blending, directional sign flips ($\text{sign}(IC)$), weight clipping, thresholding, and sum-to-1 normalization
+- Implemented `RegimeAdaptiveComposite` in `src/combination/regime_adaptive.py` inheriting from `BaseComposite`
+- Implemented `Week8Reporter` in `src/combination/regime_reporting.py` for heatmaps, dynamic weight drift, posterior IC evolution plots, and Markdown teardowns
+- Integrated Stage 8 pipeline step into `src/main.py`
+- Created comprehensive unit test suite in `tests/test_regime_adaptive_week8.py` (5/5 tests passing)
 
 
 ## What Is Not Done Yet
@@ -106,9 +107,8 @@ The current implementation establishes the research data backbone and the alpha 
 - no runtime-verified end-to-end DB execution has been completed in this session (requires active local PostgreSQL)
 - no CI workflow exists yet
 
-### Week 8 and beyond
+### Week 9 and beyond
 
-- regime-adaptive weighting (Week 8)
 - CVaR portfolio risk optimization (Week 9)
 - dashboard and deployment (Weeks 10-12)
 
@@ -132,6 +132,8 @@ This currently runs:
 12. Week 6 composite generation (IC-weighted, Fama-MacBeth, XGBoost) and walk-forward prediction
 13. Week 6 backtesting of composite signals and dual metrics generation (full + OOS 2010–2024)
 14. Week 6 model explaining (SHAP plots, features ranking) and metrics reporting (CSV, MD)
+15. Week 7 HMM market regime detection, state selection, economic labeling, and transition matrix calculation
+16. Week 8 regime-conditional factor IC & rolling ICIR analysis, Bayesian updating, direction-aware adaptive factor weighting, dynamic `RegimeAdaptiveComposite` score computation, and full vs OOS backtest performance teardown
 
 
 ## Current Database Model
@@ -153,6 +155,10 @@ This currently runs:
 - `composite_scores`
 - `combination_weights`
 - `combination_metrics`
+- `market_regimes`
+- `regime_factor_ic`
+- `regime_factor_weights`
+- `adaptive_runs`
 
 
 ## Current Processed Outputs
@@ -177,6 +183,19 @@ Under `data/processed/week6`:
 - factor rank correlation matrix plot
 - serialized XGBoost model (`xgb_model.json`)
 - backtest reports and plots for all 3 composite methods
+
+Under `data/processed/week7`:
+- SPX regimes overlay plot (`spx_regimes.png`)
+- transition matrix heatmap (`transition_matrix.png`)
+- feature profiles chart (`feature_profiles.png`)
+
+Under `data/processed/week8`:
+- factor x regime IC heatmap (`factor_regime_ic_heatmap.png`)
+- dynamic factor weights trajectory plot (`regime_adaptive_weights.png`)
+- posterior IC evolution plot (`posterior_ic_evolution.png`)
+- dynamic weight allocation heatmap (`dynamic_weight_allocation_heatmap.png`)
+- strategy performance comparison tables (`week8_composite_comparison.csv` and `.md`)
+
 
 Under `notebooks/`:
 - `week3_factor_evaluation.ipynb`

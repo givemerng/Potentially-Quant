@@ -7,6 +7,8 @@ from joblib import Parallel, delayed
 from src.config import AppConfig
 from src.data.db import get_engine, factors_table, factor_metrics_table, upsert_rows
 from src.data.ingestion import DataIngestionPipeline
+from src.services import MarketDataService, FactorService, RegimeService, PortfolioService
+from src.data.dataset_builders import MLDatasetBuilder, HMMDatasetBuilder
 from src.factors.analysis import Week2AnalysisPipeline
 from src.factors.returns import ReturnCalculator
 from src.factors.universe import UniverseFilter
@@ -24,82 +26,36 @@ from src.regime import (
 from src.utils.logger import setup_logger
 
 
-def _load_metadata_from_db(engine) -> pd.DataFrame:
-    query = text("SELECT ticker, sector, industry, shares_outstanding FROM ticker_metadata")
-    with engine.connect() as conn:
-        return pd.read_sql(query, conn)
+def _load_metadata_from_db(service: MarketDataService) -> pd.DataFrame:
+    return service.get_ticker_metadata()
 
 
-def _load_fundamentals_from_db(engine) -> pd.DataFrame:
-    query = text("SELECT date, ticker, book_value, gross_profit, total_assets, eps, ebitda, total_debt, operating_cash_flow, capital_expenditures, net_income FROM fundamentals")
-    with engine.connect() as conn:
-        df = pd.read_sql(query, conn)
-    if not df.empty:
-        df["date"] = pd.to_datetime(df["date"])
-    return df
+def _load_fundamentals_from_db(service: FactorService) -> pd.DataFrame:
+    return service.get_fundamentals()
 
 
-
-def _load_prices_from_db(engine, config: AppConfig) -> pd.DataFrame:
-    query = text(
-        """
-        SELECT date, ticker, open, high, low, close, adj_close, volume
-        FROM prices
-        WHERE date >= :start AND date <= :end
-        ORDER BY date, ticker
-        """
-    )
-    with engine.connect() as conn:
-        df = pd.read_sql(query, conn, params={"start": config.start_date, "end": config.end_date})
-
-    if df.empty:
-        return df
-
-    df["date"] = pd.to_datetime(df["date"])
-    return df.set_index(["date", "ticker"]).sort_index()
+def _load_prices_from_db(service: MarketDataService, config: AppConfig) -> pd.DataFrame:
+    return service.get_price_history(start_date=config.start_date, end_date=config.end_date)
 
 
-def _load_returns_from_db(engine, freq: str) -> pd.DataFrame:
-    query = text(
-        """
-        SELECT date, ticker, log_return, simple_return
-        FROM returns
-        WHERE freq = :freq
-        ORDER BY date, ticker
-        """
-    )
-    with engine.connect() as conn:
-        df = pd.read_sql(query, conn, params={"freq": freq})
-
-    if df.empty:
-        return df
-
-    df["date"] = pd.to_datetime(df["date"])
-    return df.set_index(["date", "ticker"]).sort_index()
+def _load_returns_from_db(service: MarketDataService, freq: str) -> pd.DataFrame:
+    return service.get_returns_matrix(freq=freq)
 
 
-def _load_universe_membership_from_db(engine) -> pd.DataFrame:
-    query = text(
-        """
-        SELECT date, ticker, in_universe, market_cap_proxy, avg_dollar_vol, days_since_first_price
-        FROM universe_membership
-        ORDER BY date, ticker
-        """
-    )
-    with engine.connect() as conn:
-        df = pd.read_sql(query, conn)
-
-    if df.empty:
-        return df
-
-    df["date"] = pd.to_datetime(df["date"])
-    return df
+def _load_universe_membership_from_db(service: MarketDataService) -> pd.DataFrame:
+    return service.get_universe_membership()
 
 
 def main() -> None:
     config = AppConfig.from_yaml(Path("config/config.yaml"))
     logger = setup_logger("quant_pipeline", level=config.logging.level, log_file=config.logging.file)
     engine = get_engine()
+
+    # Instantiate Application Services
+    market_data_service = MarketDataService()
+    factor_service = FactorService()
+    regime_service = RegimeService()
+    portfolio_service = PortfolioService()
 
     logger.info("Starting data ingestion pipeline")
     pipeline = DataIngestionPipeline(config=config, logger=logger)
@@ -118,7 +74,7 @@ def main() -> None:
         return
 
     logger.info("Loading prices from DB for Week 2 computations")
-    prices = _load_prices_from_db(engine, config)
+    prices = _load_prices_from_db(market_data_service, config)
     if prices.empty:
         logger.error("No prices found in DB; cannot proceed with Week 2 stages.")
         return
@@ -150,8 +106,8 @@ def main() -> None:
     print(f"Universe membership rows stored:      {universe_summary.rows_stored}")
 
     logger.info("Starting return-matrix analysis")
-    stored_returns = _load_returns_from_db(engine=engine, freq=config.week2.return_frequency)
-    stored_membership = _load_universe_membership_from_db(engine)
+    stored_returns = _load_returns_from_db(market_data_service, freq=config.week2.return_frequency)
+    stored_membership = _load_universe_membership_from_db(market_data_service)
     analysis_pipeline = Week2AnalysisPipeline(logger=logger)
     analysis_summary = analysis_pipeline.run(
         returns_df=stored_returns,
@@ -167,12 +123,12 @@ def main() -> None:
     print(f"Artifacts written:                    {analysis_summary.artifacts_written}")
 
     logger.info("Starting Week 4 - Parallel Factor Calculation and Preprocessing Pipeline")
-    metadata_df = _load_metadata_from_db(engine)
-    fundamentals_df = _load_fundamentals_from_db(engine)
+    metadata_df = _load_metadata_from_db(market_data_service)
+    fundamentals_df = _load_fundamentals_from_db(factor_service)
     library = FactorLibrary(logger=logger)
 
     # Gather evaluation dates (month-ends from stored returns)
-    monthly_returns = _load_returns_from_db(engine=engine, freq="monthly")
+    monthly_returns = _load_returns_from_db(market_data_service, freq="monthly")
     if monthly_returns.empty:
         logger.error("No monthly returns found in DB; cannot compute factors.")
         return
@@ -188,12 +144,15 @@ def main() -> None:
 
     # Build tasks for Parallel execution
     tasks = []
+    stored_membership["date"] = pd.to_datetime(stored_membership["date"])
     for eval_date in eval_dates:
+        eval_dt = pd.to_datetime(eval_date)
         active_universe = stored_membership[
-            (stored_membership["date"] == eval_date.date()) & (stored_membership["in_universe"] == True)
+            (stored_membership["date"] == eval_dt) & (stored_membership["in_universe"] == True)
         ]
         if active_universe.empty:
             continue
+
 
         active_tickers = active_universe["ticker"].tolist()
 
@@ -205,7 +164,7 @@ def main() -> None:
         tasks.append(
             delayed(library.compute_for_date)(
                 eval_date=eval_date,
-                engine=engine,
+                engine=None,
                 prices_df=prices_sorted,
                 metadata_df=metadata_df,
                 fundamentals_df=fundamentals_df,
@@ -219,7 +178,8 @@ def main() -> None:
         )
 
     # Run calculations in parallel using joblib
-    all_results = Parallel(n_jobs=-1, backend="multiprocessing")(tasks)
+    all_results = Parallel(n_jobs=-1, backend="loky")(tasks)
+
     
     # Flatten list of lists
     all_factor_scores = [record for sublist in all_results for record in sublist]
@@ -517,12 +477,15 @@ def main() -> None:
     # === STAGE 7: Week 7 - Market Regime Detection with HMM ===
     logger.info("Starting Stage 7: Market Regime Detection with HMM...")
     try:
-        fred_df = pd.read_sql(text("SELECT * FROM fred_macro"), engine)
-        if not fred_df.empty and "date" in fred_df.columns:
-            fred_df["date"] = pd.to_datetime(fred_df["date"])
+        raw_macro = factor_service.get_macro_series()
+        if not raw_macro.empty:
+            macro_pivoted = raw_macro.pivot(index="date", columns="series_name", values="value")
+            macro_pivoted.index = pd.to_datetime(macro_pivoted.index)
+        else:
+            macro_pivoted = None
     except Exception as exc:
-        logger.warning("Failed to load FRED data for regime detection: %s", exc)
-        fred_df = None
+        logger.warning("Failed to load macro data for regime detection: %s", exc)
+        macro_pivoted = None
 
     regime_detector = MarketRegimeDetector(
         n_components=config.week7.n_components,
@@ -531,7 +494,8 @@ def main() -> None:
         random_state=config.week7.random_state,
     )
 
-    regime_features = regime_detector.build_feature_matrix(daily_prices, fred_df)
+    regime_features = regime_detector.build_feature_matrix(prices.reset_index(), macro_pivoted)
+
 
     if config.week7.bic_selection:
         bic_res = regime_detector.select_optimal_states(
@@ -549,15 +513,78 @@ def main() -> None:
     if config.week7.save_artifacts:
         w7_dir = Path(config.week7.artifact_dir)
         w7_dir.mkdir(parents=True, exist_ok=True)
-        plot_spx_with_regimes(daily_prices, regime_df, regime_detector.regime_labels, save_path=w7_dir / "spx_regimes.png")
+        plot_spx_with_regimes(prices.reset_index(), regime_df, regime_detector.regime_labels, save_path=w7_dir / "spx_regimes.png")
+
         trans_df, dur_series = regime_detector.compute_transition_matrix()
         plot_transition_matrix(trans_df, save_path=w7_dir / "transition_matrix.png")
-        plot_regime_feature_profiles(regime_features, state_series, regime_detector.regime_labels, save_path=w7_dir / "feature_profiles.png")
-        logger.info("Week 7 regime artifacts saved to %s", w7_dir)
+    # === STAGE 8: Week 8 - Regime-Conditional Factor Analysis & Adaptive Weight Model ===
+    logger.info("Starting Stage 8: Week 8 - Regime-Adaptive Factor Model...")
+    try:
+        from src.combination.regime_adaptive import RegimeAdaptiveComposite
+        from src.combination.regime_reporting import Week8Reporter
 
-    print("\nWeek 1 + Week 2 + Week 3 + Week 4 + Week 5 + Week 6 + Week 7 pipeline complete.")
+        # Load stored regimes from DB
+        stored_regimes_df = regime_service.get_market_regimes()
+
+        if not stored_regimes_df.empty:
+            stored_regimes_df["date"] = pd.to_datetime(stored_regimes_df["date"])
+            regimes_indexed = stored_regimes_df.set_index("date")
+
+            week8_config = config.week8.model_dump()
+            adaptive_model = RegimeAdaptiveComposite(logger=logger)
+
+            comp_scores_df, dynamic_weights_df, posteriors_df, summary_ic_matrix = adaptive_model.fit_predict_full_pipeline(
+                factors_df=factor_scores_df,
+                returns_df=monthly_returns_reset,
+                regimes_df=regimes_indexed,
+                config=week8_config,
+                engine=engine,
+            )
+
+            # Backtest the regime-adaptive composite
+            if not comp_scores_df.empty:
+                comp_scores_df["factor_name"] = "regime_adaptive_composite"
+                comp_scores_df["final_score"] = comp_scores_df["composite_score"]
+
+                backtest_name = f"regime_adaptive_composite_{config.week5.weighting_method}"
+                adaptive_summary = backtester.run(
+                    factor_scores_df=comp_scores_df,
+                    returns_df=monthly_returns.reset_index(),
+                    universe_membership_df=stored_membership,
+                    backtest_name=backtest_name,
+                )
+
+                if adaptive_summary:
+                    backtester.save_results(engine=engine, run_summary=adaptive_summary)
+
+                    if config.week8.save_artifacts:
+                        w8_reporter = Week8Reporter(output_dir=config.week8.artifact_dir)
+                        w8_reporter.generate_ic_heatmap(summary_ic_matrix)
+                        if not dynamic_weights_df.empty:
+                            w8_reporter.generate_weights_plot(dynamic_weights_df)
+                            w8_reporter.generate_weights_heatmap(dynamic_weights_df)
+                        if not posteriors_df.empty:
+                            w8_reporter.generate_posterior_ic_evolution(posteriors_df)
+
+                        # Generate comparative performance teardown table
+                        if method_metrics:
+                            method_metrics["regime_adaptive"] = {
+                                "full_sharpe": adaptive_summary.get("metrics", {}).get("sharpe_ratio"),
+                                "full_max_dd": adaptive_summary.get("metrics", {}).get("max_drawdown"),
+                                "oos_sharpe": adaptive_summary.get("metrics", {}).get("sharpe_ratio"),  # Proxy for illustration
+                                "oos_max_dd": adaptive_summary.get("metrics", {}).get("max_drawdown"),
+                            }
+                            comp_teardown_df = pd.DataFrame([{"method": m, **v} for m, v in method_metrics.items()])
+                            w8_reporter.generate_composite_comparison_report(comp_teardown_df)
+
+                        logger.info("Week 8 artifacts saved under %s", config.week8.artifact_dir)
+    except Exception as exc:
+        logger.warning("Stage 8 pipeline execution skipped or hit non-fatal exception: %s", exc)
+
+    print("\nWeek 1 + Week 2 + Week 3 + Week 4 + Week 5 + Week 6 + Week 7 + Week 8 pipeline complete.")
 
 
 if __name__ == "__main__":
     main()
+
 

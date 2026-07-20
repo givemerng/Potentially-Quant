@@ -59,9 +59,25 @@ class Week6Reporter:
         md_path = artifact_dir / "composite_comparison.md"
         with open(md_path, "w", encoding="utf-8") as f:
             f.write("# Week 6 — Composite Method Comparison\n\n")
-            f.write(df.to_markdown(index=False))
+            f.write(self._to_markdown(df, index=False))
             f.write("\n")
         self.logger.info("Saved comparison markdown to %s", md_path)
+
+    def _to_markdown(self, df: pd.DataFrame, index: bool = True) -> str:
+        try:
+            return df.to_markdown(index=index)
+        except Exception:
+            cols = list(df.columns)
+            if index:
+                cols = ["index"] + cols
+            header = "| " + " | ".join(map(str, cols)) + " |"
+            separator = "| " + " | ".join(["---"] * len(cols)) + " |"
+            rows = []
+            for idx, row in zip(df.index, df.values):
+                val_list = [idx] + list(row) if index else list(row)
+                rows.append("| " + " | ".join(str(v) for v in val_list) + " |")
+            return "\n".join([header, separator] + rows)
+
 
     def save_factor_weights_csv(
         self,

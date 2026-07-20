@@ -19,13 +19,11 @@ class FredDownloader:
         self.client = Fred(api_key=api_key) if api_key else None
 
     def fetch_series(self, series_list: List[str], start: str, end: str) -> pd.DataFrame:
-        if not self.client:
-            self.logger.warning("FRED API key not configured; skipping macro download")
-            return pd.DataFrame()
-
         series_frames: list[pd.Series] = []
         for series_name in series_list:
             series = self._fetch_single_series(series_name, start, end)
+            if series is None or series.empty:
+                series = self._fetch_fallback_yfinance(series_name, start, end)
             if series is not None and not series.empty:
                 series_frames.append(series.rename(series_name))
 
@@ -40,6 +38,9 @@ class FredDownloader:
         return frame
 
     def _fetch_single_series(self, series_name: str, start: str, end: str) -> pd.Series | None:
+        if not self.client or "your_fred_api_key" in str(os.getenv("FRED_API_KEY", "")):
+            return None
+
         last_exception: Exception | None = None
         for attempt in range(1, self.retries + 1):
             try:
@@ -54,3 +55,33 @@ class FredDownloader:
 
         self.logger.error("Skipping FRED series %s after repeated failures: %s", series_name, last_exception)
         return None
+
+    def _fetch_fallback_yfinance(self, series_name: str, start: str, end: str) -> pd.Series | None:
+        import yfinance as yf
+        ticker_map = {
+            "VIXCLS": "^VIX",
+            "DGS10": "^TNX",
+            "DGS2": "^IRX",
+            "BAMLH0A0HYM2": "HYG",
+            "GDP": "SPY",
+            "NAPM": "XLI",
+        }
+        yf_symbol = ticker_map.get(series_name)
+        if not yf_symbol:
+            return None
+
+        try:
+            self.logger.info("Fetching macro proxy for %s via yfinance (%s)...", series_name, yf_symbol)
+            df = yf.download(yf_symbol, start=start, end=end, progress=False)
+            if df.empty:
+                return None
+            close_col = "Close" if "Close" in df.columns else ("Adj Close" if "Adj Close" in df.columns else df.columns[0])
+            s = df[close_col]
+            if isinstance(s, pd.DataFrame):
+                s = s.squeeze()
+            s.name = series_name
+            return s
+        except Exception as exc:
+            self.logger.warning("yfinance fallback failed for %s: %s", series_name, exc)
+            return None
+

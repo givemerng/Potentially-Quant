@@ -159,7 +159,7 @@ class Reporter:
                 fmt_df = annual_stats.copy()
                 for col in fmt_df.columns:
                     fmt_df[col] = fmt_df[col].apply(lambda x: f"{x:.2%}")
-                f.write(fmt_df.to_markdown())
+                f.write(self._to_markdown(fmt_df))
             f.write("\n\n")
 
             f.write("## Monthly Returns Matrix (Net)\n\n")
@@ -167,8 +167,19 @@ class Reporter:
                 fmt_grid = monthly_grid.copy()
                 for col in fmt_grid.columns:
                     fmt_grid[col] = fmt_grid[col].apply(lambda x: f"{x:.2%}")
-                f.write(fmt_grid.to_markdown())
+                f.write(self._to_markdown(fmt_grid))
             f.write("\n")
+
+    def _to_markdown(self, df: pd.DataFrame) -> str:
+        try:
+            return df.to_markdown()
+        except Exception:
+            cols = list(df.columns)
+            header = "| " + " | ".join(map(str, cols)) + " |"
+            separator = "| " + " | ".join(["---"] * len(cols)) + " |"
+            rows = ["| " + " | ".join(str(val) for val in row) + " |" for row in df.values]
+            return "\n".join([header, separator] + rows)
+
 
     def _plot_curves(self, results_df: pd.DataFrame, backtest_name: str, out_path: Path) -> None:
         """Plot and save equity and drawdown curves."""

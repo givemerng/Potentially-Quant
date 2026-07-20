@@ -26,16 +26,22 @@ The target is a **net Sharpe ratio > 0.8** on 2010–2024 out-of-sample data, pr
 
 ### Tech Stack
 
-Python · Pandas · NumPy · scikit-learn · hmmlearn · XGBoost · CVXPY · statsmodels · FastAPI · PostgreSQL · Redis · Streamlit · Docker
+Python · Pandas · NumPy · scikit-learn · hmmlearn · XGBoost · CVXPY · statsmodels · FastAPI · Neon PostgreSQL · psycopg (v3) · SQLAlchemy 2.x · Docker
 
 ---
 
-This repository covers **Weeks 1 to 7** of the 12-week implementation plan.
+This repository covers **Weeks 1 to 8** of the 12-week implementation plan and features a production-ready **Enterprise 4-Tier Architecture** backed by **Neon PostgreSQL** via `psycopg` (v3).
 
-The project ingests historical equity OHLCV data from Yahoo Finance, macro series from FRED, stores both in PostgreSQL with idempotent upserts, computes daily and monthly returns, builds a point-in-time universe membership table, and runs a parallel config-driven factor calculation, neutralization, evaluation, vectorized backtesting pipeline, and market regime detection model.
+The project ingests historical equity OHLCV data from Yahoo Finance, macro series from FRED, stores both in Neon PostgreSQL with idempotent upserts, computes daily and monthly returns, builds a point-in-time universe membership table, and runs a parallel config-driven factor calculation, neutralization, evaluation, vectorized backtesting pipeline, market regime detection model, and regime-adaptive multi-factor composite engine.
 
-## Implemented Scope
+## Implemented Scope & Architecture
 
+- **Enterprise 4-Tier Architecture**:
+  - **Layer 1 (Domain Models)**: `src/domain/models.py` with typed domain dataclasses (`TickerMetadata`, `CombinationRun`, `BacktestResult`, `RegimeWeight`, `PipelineSummary`).
+  - **Layer 2 (Repositories)**: Abstract interfaces (`src/data/repositories/interfaces.py`), generic `BaseRepository` (`src/data/repositories/base.py`) using SQLAlchemy Core parameters, and concrete repositories (`PricesRepository`, `MetadataRepository`, `FundamentalsRepository`, `FactorsRepository`, `RegimesRepository`, `PortfolioRepository`).
+  - **Layer 3 (Services)**: Application service layer (`MarketDataService`, `FactorService`, `RegimeService`, `PortfolioService`) orchestrating multi-repository operations and caching reference data.
+  - **Layer 4 (Dataset Builders)**: Configuration-driven specialized dataset builders (`MLDatasetBuilder`, `HMMDatasetBuilder`, `FactorDatasetBuilder`, `BacktestDatasetBuilder`) in `src/data/dataset_builders/`.
+- **Neon PostgreSQL Ingestion**: Production-grade connection pooling, auto-detection of pooled vs. direct connection strings, `psycopg` v3 driver, auto-batching to stay within parameter limits, and full table population (176,000+ records across 23 tables).
 - **Week 1**: Config-driven ingestion pipeline, PostgreSQL schema and upserts, centralized logging, and reproducible entrypoint.
 - **Week 2**: Daily and monthly return calculation, point-in-time universe membership filtering, return matrix construction/masking, and cross-sectional / annual distribution diagnostics.
 - **Week 3**: Abstract base alpha class, 5 base factors (Price Momentum, 3-Month Momentum, Book-to-Price, Gross Profitability, Low Volatility), winsorization/Z-score normalization, statsmodels OLS size/sector neutralization, and factor evaluation harness (time-series IC, ICIR, Quintile Sharpe, autocorrelation decay half-life).
@@ -43,18 +49,24 @@ The project ingests historical equity OHLCV data from Yahoo Finance, macro serie
 - **Week 5**: Vectorized portfolio backtesting engine supporting commissions and bid-ask spread models, equal-weight long-only and long-short target weight construction, position limit clipping/redistribution, performance metrics calculations (Sharpe, Sortino, Max Drawdown, Calmar, win rate, turnover), database persistence, and reporting layouts (monthly/annual grids, equity curves, drawdown charts).
 - **Week 6**: Factor combination and ML integration with three composite strategies (IC-weighted, Fama-MacBeth OLS, XGBoost walk-forward), `BaseComposite` ABC interface, shared feature preprocessing pipeline, experiment tracking with `combination_runs` table, rolling factor weight persistence, SHAP feature importance analysis, factor correlation diagnostics, and dual metric reporting (full + OOS 2010–2024).
 - **Week 7**: Market regime detection using Gaussian Hidden Markov Models (HMM) fitted on a 7-feature macro/market panel (VIX level/change, yield curve slope, credit spread, SPX 12M momentum, 21D realized volatility, GDP YoY growth), automated BIC state selection, economic regime labeling (Bull Market, Bear / High-Vol, Rate Shock / Stagnation, Neutral / Transition), state transition dynamics, database persistence (`market_regimes` table), and visualization routines (SPX regime shading, transition matrix heatmaps, feature profiles).
+- **Week 8**: Regime-conditional factor analysis and adaptive weight model featuring `RegimeFactorAnalyzer` (rolling Spearman IC and ICIR by regime), `BayesianUpdater` (Gaussian prior shrinkage, exponential decay, posterior IC variance and $N_{\text{eff}}$), `AdaptiveWeightGenerator` (directional sign flips, weight clipping limits, minimum thresholds, sum-to-1 normalization), `RegimeAdaptiveComposite` score generator, database persistence (`regime_factor_ic`, `regime_factor_weights`, `adaptive_runs`), and diagnostic reporting (factor x regime heatmaps, dynamic weight drift plots, posterior IC trajectories, Markdown teardowns).
+
 
 ## Repository Layout
 
-- `config/config.yaml`: Universe, date range, FRED series, downloader settings, and Week 2/3/5/6/7 pipeline parameters
-- `src/config.py`: Pydantic-backed config models (including Week 7 configs)
+- `config/config.yaml`: Universe, date range, FRED series, downloader settings, and Week 2/3/5/6/7/8 pipeline parameters
+- `src/config.py`: Pydantic-backed config models (`DatabaseSettings`, `DatasetConfig`, Week 7/8 configs)
+- `src/domain/`: Typed domain dataclasses (`models.py`)
+- `src/data/repositories/`: Abstract interfaces and concrete repositories (`PricesRepository`, `MetadataRepository`, `FundamentalsRepository`, `FactorsRepository`, `RegimesRepository`, `PortfolioRepository`)
+- `src/services/`: Service layer orchestrating domain operations (`MarketDataService`, `FactorService`, `RegimeService`, `PortfolioService`)
+- `src/data/dataset_builders/`: Specialized dataset builders (`MLDatasetBuilder`, `HMMDatasetBuilder`, `FactorDatasetBuilder`, `BacktestDatasetBuilder`)
 - `src/data/downloader.py`: Yahoo Finance downloader with parallel fetching, metadata, and fundamentals downloader
 - `src/data/fred_client.py`: FRED downloader with retries and forward-filled normalization
 - `src/data/fama_french_client.py`: Client to download and parse Fama-French 5-factor returns
-- `src/data/db.py`: Database schema (including fundamentals, metadata, factors, metrics, composite, and market regimes tables) and PostgreSQL upsert helpers
+- `src/data/db.py`: Database schema, singleton SQLAlchemy engine, Neon pooled mode handling, and psycopg v3 upserts
 - `src/data/ingestion.py`: Week 1 and 3 data ingestion pipeline orchestrator
 - `src/factors/base.py`: Abstract `BaseAlpha` factor class
-- `src/factors/library.py`: Multi-factor library containing the alpha implementations
+- `src/factors/library.py`: Multi-factor library containing the 18 alpha implementations
 - `src/factors/neutralization.py`: Factor preprocessing pipeline (Winsorize, Z-score, statsmodels OLS size/sector neutralization)
 - `src/factors/evaluation.py`: Factor performance evaluation harness
 - `src/factors/returns.py`: Daily and monthly return computation plus validation
@@ -62,13 +74,15 @@ The project ingests historical equity OHLCV data from Yahoo Finance, macro serie
 - `src/factors/return_matrix.py`: Return matrix helpers for masking and distribution stats
 - `src/factors/analysis.py`: Week 2 return-matrix analysis and artifact generation
 - `src/backtest/`: Week 5 vectorized portfolio backtesting engine, rebalancer, metrics, transaction costs, and reporting modules
-- `src/combination/`: Week 6 factor combination algorithms (IC-weighted, Fama-MacBeth, XGBoost), feature preprocessor, SHAP analyzer, and reporting modules
+- `src/combination/`: Week 6 & Week 8 factor combination algorithms (IC-weighted, Fama-MacBeth, XGBoost, Regime-Adaptive), feature preprocessor, SHAP analyzer, and reporting modules
 - `src/regime/detector.py`: MarketRegimeDetector class for GaussianHMM fitting, BIC selection, economic labeling, transition matrices, and DB persistence
+- `src/regime/factor_analysis.py`: RegimeFactorAnalyzer class for regime-conditional rank IC and rolling ICIR
+- `src/regime/bayesian_updater.py`: BayesianUpdater class for Gaussian prior shrinkage, exponential decay, posterior IC variance and $N_{\text{eff}}$
+- `src/regime/adaptive_weights.py`: AdaptiveWeightGenerator class for soft HMM probability blending, directional sign flips, weight clipping limits, minimum thresholds, and normalization
 - `src/regime/visualization.py`: Regime visualization routines (SPX regime overlay, transition matrix heatmaps, feature profile bar charts)
-- `src/regime/__init__.py`: Regime detection module exports
-- `src/main.py`: Orchestrates the entire quant pipeline (Weeks 1 to 7)
-- `notebooks/week3_factor_evaluation.ipynb`: Diagnostic notebook for raw vs. final factor IC, rolling stats, quintile returns, and decay curves
-- `tests/`: Focused unit tests covering all components, including test_factors_week3.py, test_factors_week4.py, test_backtester.py, test_combination_week6.py, and test_regime_week7.py
+- `src/regime/__init__.py`: Regime detection and adaptive model module exports
+- `src/main.py`: Orchestrates the entire quant pipeline (Weeks 1 to 8) using Services and Dataset Builders
+- `tests/`: Comprehensive unit test suite (129 tests passing), including `test_repositories.py` and `test_services.py`
 
 ## Database Tables
 
@@ -86,6 +100,9 @@ The project ingests historical equity OHLCV data from Yahoo Finance, macro serie
 - `combination_weights`: Rolling factor weights by `date, factor_name, method` linked to `run_id`
 - `combination_metrics`: Performance metrics by `run_id, method, metric_name` with `full` and `oos` scopes
 - `market_regimes`: Daily hard regime IDs, economic labels, and soft posterior probabilities (`prob_0` to `prob_3`) by `date`
+- `regime_factor_ic`: Rolling sample ICs, rolling ICIRs, posterior ICs, posterior variances, and effective sample sizes by `date, factor_name, regime_id`
+- `regime_factor_weights`: Dynamic factor allocation weights, posterior ICs, and regime probabilities by `date, factor_name, run_id`
+- `adaptive_runs`: Experiment tracking for regime-adaptive runs with hyperparameters, OOS dates, and performance JSON
 
 ## Run
 
@@ -127,6 +144,7 @@ This will:
 - run SHAP feature importance analysis on the XGBoost model
 - generate factor correlation matrix, composite comparison tables, and SHAP plots under `data/processed/week6/`
 - construct 7-feature macro/market panel, run BIC selection over 2 to 6 components, fit 4-state GaussianHMM, auto-assign economic regime labels, calculate transition dynamics, save regime assignments to `market_regimes` DB table, and output SPX regime overlay plots, transition matrix heatmaps, and feature profile charts under `data/processed/week7/`
+- calculate rolling regime-conditional rank ICs & ICIRs, compute Bayesian posterior ICs with exponential decay, apply directional sign flips and weight constraint logic, compute dynamic `RegimeAdaptiveComposite` signals, run OOS backtests, persist to database tables (`regime_factor_ic`, `regime_factor_weights`, `adaptive_runs`), and render factor x regime heatmaps, dynamic weight drift plots, posterior IC trajectories, and Markdown comparison teardowns under `data/processed/week8/`
 
 ## Week 2 Artifacts
 
@@ -145,9 +163,9 @@ Set `rebuild_on_run: true` in `config/config.yaml` to drop and recreate the trac
 
 ## Not Yet Implemented
 
-- Regime-adaptive weighted composite model (Week 8)
 - CVaR portfolio risk optimization (Week 9)
 - API, dashboard, and deployment layers (Weeks 10-12)
+
 
 ## Reproducibility Notes
 

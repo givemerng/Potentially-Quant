@@ -85,6 +85,161 @@ class Week7Config(BaseModel):
     artifact_dir: str = "data/processed/week7"
 
 
+class Week8Config(BaseModel):
+    """Configuration for Week 8 Regime-Conditional Factor Analysis & Adaptive Weight Model."""
+
+    ic_lookback_months: int = Field(default=36, ge=6)
+    decay_halflife: float = Field(default=12.0, ge=1.0)
+    prior_weight: float = Field(default=0.3, ge=0.0, le=1.0)
+    min_regime_samples: int = Field(default=10, ge=3)
+    max_factor_weight: float = Field(default=0.25, ge=0.05, le=1.0)
+    min_weight_threshold: float = Field(default=0.02, ge=0.0, le=0.1)
+    oos_start_date: str = Field(default="2010-01-01")
+    oos_end_date: str = Field(default="2024-12-31")
+    save_artifacts: bool = True
+class DatasetConfig(BaseModel):
+    """Configuration for Machine Learning & Dataset Construction."""
+
+    target_freq: str = Field(default="monthly", pattern="^(daily|monthly)$")
+    lookahead_months: int = Field(default=1, ge=1)
+    normalize_features: bool = Field(default=True)
+    winsorize_features: bool = Field(default=True)
+    min_train_months: int = Field(default=36, ge=12)
+    purge_gap_months: int = Field(default=1, ge=0)
+
+
+class DatabaseSettings(BaseModel):
+    """Configuration for Database Connection & Connection Pooling (Neon / PostgreSQL)."""
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    database_url: str | None = None
+    postgres_host: str = Field(default="localhost")
+    postgres_port: int = Field(default=5432, ge=1, le=65535)
+    postgres_db: str = Field(default="quant_research")
+    postgres_user: str = Field(default="postgres")
+    postgres_password: str = Field(default="postgres")
+    driver_name: str = Field(default="psycopg")
+    pool_size: int = Field(default=10, ge=1)
+    max_overflow: int = Field(default=20, ge=0)
+    pool_recycle: int = Field(default=300, ge=30)
+    pool_timeout: int = Field(default=30, ge=1)
+    pool_pre_ping: bool = Field(default=True)
+    ssl_mode: str = Field(default="require")
+    neon_pooled_mode: str = Field(default="auto", pattern="^(auto|pooled|direct)$")
+    enable_event_logging: bool = Field(default=False)
+    max_startup_retries: int = Field(default=5, ge=1)
+    startup_retry_delay: float = Field(default=1.0, ge=0.1)
+
+    @classmethod
+    def _resolve_available_driver(cls, driver_name: str) -> str:
+        if driver_name == "psycopg":
+            try:
+                import psycopg  # noqa: F401
+                return "psycopg"
+            except ImportError:
+                try:
+                    import psycopg2  # noqa: F401
+                    return "psycopg2"
+                except ImportError:
+                    return "psycopg"
+        return driver_name
+
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def normalize_database_url(cls, v: str | None) -> str | None:
+        if not v or not isinstance(v, str):
+            return v
+        v = v.strip()
+        target_driver = cls._resolve_available_driver("psycopg")
+        if v.startswith("postgres://"):
+            v = f"postgresql+{target_driver}://" + v[len("postgres://"):]
+        elif v.startswith("postgresql://") and not v.startswith("postgresql+"):
+            v = f"postgresql+{target_driver}://" + v[len("postgresql://"):]
+        return v
+
+    def is_neon_pooled(self) -> bool:
+        if self.neon_pooled_mode == "pooled":
+            return True
+        if self.neon_pooled_mode == "direct":
+            return False
+        url_str = self.database_url or self.postgres_host
+        return "-pooler" in url_str or ":6543" in url_str
+
+    def get_connection_string(self) -> str:
+        """
+        Resolution Hierarchy:
+        1. Explicit DATABASE_URL (env or config)
+        2. Discrete POSTGRES_* env vars / settings
+        3. Local fallback defaults
+        """
+        if self.database_url:
+            return self.database_url
+
+        effective_driver = self._resolve_available_driver(self.driver_name)
+        driver = f"postgresql+{effective_driver}" if effective_driver else "postgresql+psycopg"
+        base_url = f"{driver}://{self.postgres_user}:{self.postgres_password}@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
+        if self.postgres_host not in ("localhost", "127.0.0.1") and self.ssl_mode:
+            base_url += f"?sslmode={self.ssl_mode}"
+        return base_url
+
+    @classmethod
+    def from_env(cls) -> "DatabaseSettings":
+        import os
+        from dotenv import load_dotenv
+
+        load_dotenv()
+        db_url = os.getenv("DATABASE_URL")
+        host = os.getenv("POSTGRES_HOST")
+        port = os.getenv("POSTGRES_PORT")
+        db_name = os.getenv("POSTGRES_DB")
+        user = os.getenv("POSTGRES_USER")
+        password = os.getenv("POSTGRES_PASSWORD")
+        driver = os.getenv("DB_DRIVER")
+        pool_size = os.getenv("DB_POOL_SIZE")
+        max_overflow = os.getenv("DB_MAX_OVERFLOW")
+        pool_recycle = os.getenv("DB_POOL_RECYCLE")
+        pool_timeout = os.getenv("DB_POOL_TIMEOUT")
+        pool_pre_ping = os.getenv("DB_POOL_PRE_PING")
+        ssl_mode = os.getenv("DB_SSL_MODE")
+        neon_mode = os.getenv("DB_NEON_POOLED_MODE")
+        event_logging = os.getenv("DB_ENABLE_EVENT_LOGGING")
+
+        kwargs = {}
+        if db_url is not None:
+            kwargs["database_url"] = db_url
+        if host is not None:
+            kwargs["postgres_host"] = host
+        if port is not None:
+            kwargs["postgres_port"] = int(port)
+        if db_name is not None:
+            kwargs["postgres_db"] = db_name
+        if user is not None:
+            kwargs["postgres_user"] = user
+        if password is not None:
+            kwargs["postgres_password"] = password
+        if driver is not None:
+            kwargs["driver_name"] = driver
+        if pool_size is not None:
+            kwargs["pool_size"] = int(pool_size)
+        if max_overflow is not None:
+            kwargs["max_overflow"] = int(max_overflow)
+        if pool_recycle is not None:
+            kwargs["pool_recycle"] = int(pool_recycle)
+        if pool_timeout is not None:
+            kwargs["pool_timeout"] = int(pool_timeout)
+        if pool_pre_ping is not None:
+            kwargs["pool_pre_ping"] = pool_pre_ping.lower() in ("true", "1", "yes")
+        if ssl_mode is not None:
+            kwargs["ssl_mode"] = ssl_mode
+        if neon_mode is not None:
+            kwargs["neon_pooled_mode"] = neon_mode
+        if event_logging is not None:
+            kwargs["enable_event_logging"] = event_logging.lower() in ("true", "1", "yes")
+
+        return cls(**kwargs)
+
+
 class LoggingConfig(BaseModel):
     level: str = "INFO"
     file: str = "logs/pipeline.log"
@@ -98,6 +253,7 @@ class AppConfig(BaseModel):
     end_date: str
     fred_series: List[str] = Field(default_factory=list)
     rebuild_on_run: bool = False
+    db: DatabaseSettings = Field(default_factory=DatabaseSettings.from_env)
     download: DownloadConfig = Field(default_factory=DownloadConfig)
     universe_filter: UniverseFilterConfig = Field(default_factory=UniverseFilterConfig)
     week2: Week2Config = Field(default_factory=Week2Config)
@@ -105,8 +261,8 @@ class AppConfig(BaseModel):
     week5: Week5Config = Field(default_factory=Week5Config)
     week6: Week6Config = Field(default_factory=Week6Config)
     week7: Week7Config = Field(default_factory=Week7Config)
+    week8: Week8Config = Field(default_factory=Week8Config)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
-
 
     @field_validator("stock_universe", mode="before")
     @classmethod
@@ -119,3 +275,4 @@ class AppConfig(BaseModel):
         with path.open("r", encoding="utf-8") as handle:
             raw_config = yaml.safe_load(handle) or {}
         return cls.model_validate(raw_config)
+

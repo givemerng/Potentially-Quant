@@ -80,3 +80,16 @@ week7:
   save_artifacts: true
   artifact_dir: data/processed/week7
 
+week8:
+  ic_lookback_months: 36
+  decay_halflife: 12
+  prior_weight: 0.3
+  min_regime_samples: 10
+  max_factor_weight: 0.25
+  min_weight_threshold: 0.02
+  oos_start_date: "2010-01-01"
+  oos_end_date: "2024-12-31"
+  save_artifacts: true
+  artifact_dir: data/processed/week8
+
+

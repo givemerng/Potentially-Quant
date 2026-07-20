@@ -2,31 +2,26 @@
 
 ## Current State
 
-The repository implements the full Weeks 1-7 scope of the `Regime-Adaptive Multi-Factor Alpha Engine`. This covers data infrastructure (Yahoo Finance, FRED, FF5), returns/universe pipeline, OLS size/sector neutralization, an expanded library of 18 alpha factors, parallelized factor calculation over month-ends, factor evaluation, vectorized backtesting engine with transaction costs, factor combination & ML integration (IC-weighted, Fama-MacBeth, XGBoost), and Gaussian HMM market regime detection.
+The repository implements the full Weeks 1-8 scope of the `Regime-Adaptive Multi-Factor Alpha Engine` structured as an enterprise **4-Tier Architecture** (`Domain Models` → `Repositories` → `Services` → `Dataset Builders`) backed by **Neon PostgreSQL** via `psycopg` (v3).
 
-The system is structured as a config-driven Python pipeline with PostgreSQL as the system of record.
+## High-Level 4-Tier Architecture
 
-## High-Level Flow
+1. **Layer 1: Domain Models (`src/domain/`)**
+   - Typed domain contracts (`TickerMetadata`, `CombinationRun`, `BacktestResult`, `RegimeWeight`, `PipelineSummary`) decoupling data persistence from application domain logic.
 
-1. `src/main.py`
-2. `src/data/ingestion.py`
-3. `src/factors/returns.py`
-4. `src/factors/universe.py`
-5. `src/factors/analysis.py`
+2. **Layer 2: Repository Layer (`src/data/repositories/`)**
+   - Abstract interfaces (`src/data/repositories/interfaces.py`).
+   - Generic `BaseRepository` (`src/data/repositories/base.py`) providing SQLAlchemy Core parameter execution (`fetch_dataframe`, `bulk_upsert`) and date type normalization.
+   - Concrete repositories (`PricesRepository`, `MetadataRepository`, `FundamentalsRepository`, `FactorsRepository`, `RegimesRepository`, `PortfolioRepository`) with in-memory caching for metadata, macro, and Fama-French reference data.
 
-Operationally, the flow is:
+3. **Layer 3: Application Service Layer (`src/services/`)**
+   - Domain services (`MarketDataService`, `FactorService`, `RegimeService`, `PortfolioService`) orchestrating multi-repository operations, transactions, and caching.
 
-- load runtime settings from `config/config.yaml`
-- initialize logging via `src/utils/logger.py`
-- create or rebuild database tables
-- download Yahoo Finance OHLCV data
-- download FRED macro series
-- upsert raw datasets into PostgreSQL
-- compute daily and monthly returns
-- compute point-in-time universe membership
-- build and trim the Week 2 return matrix
-- generate cross-sectional statistics and annual tail diagnostics
-- write processed Week 2 artifacts to `data/processed/week2`
+4. **Layer 4: Specialized Dataset Builders (`src/data/dataset_builders/`)**
+   - Configuration-driven dataset builders (`MLDatasetBuilder`, `HMMDatasetBuilder`, `FactorDatasetBuilder`, `BacktestDatasetBuilder`) reading exclusively from Services and Repositories to assemble ML feature matrices $X$ and forward return labels $y$.
+
+5. **Pipeline Entrypoint (`src/main.py`)**
+   - Orchestrates the full pipeline using Services and Dataset Builders.
 
 ## Module Responsibilities
 
@@ -238,12 +233,22 @@ Implemented:
 - Diagnostic plotting routines for SPX regime overlay shading, transition matrix heatmaps, and feature profile bar charts
 - Comprehensive unit test suite in `tests/test_regime_week7.py`
 
-### Week 8+
+### Week 8
+
+Implemented:
+- `RegimeFactorAnalyzer` computing rolling Spearman rank IC and rolling ICIR ($\frac{\mu_{IC}}{\sigma_{IC}}$) per factor per regime.
+- `BayesianUpdater` performing Gaussian prior shrinkage ($\mu_{\text{post}} = \alpha \mu_{\text{prior}} + (1-\alpha) \mu_{\text{sample}}$) with exponential decay weighting, outputting posterior IC, variance, and effective sample size ($N_{\text{eff}}$).
+- `AdaptiveWeightGenerator` blending HMM soft state probabilities $P(\text{Regime}_t = k)$, preserving directionality via $\text{sign}(\text{IC})$ score multiplier, and enforcing weight clipping limits, minimum thresholds, and sum-to-1 normalization.
+- `RegimeAdaptiveComposite` inheriting from `BaseComposite`, orchestrating the modular pipeline, generating alpha scores, and persisting experiment metadata to PostgreSQL tables (`regime_factor_ic`, `regime_factor_weights`, `adaptive_runs`).
+- `Week8Reporter` rendering factor x regime IC heatmaps, dynamic factor weight trajectories, posterior IC evolution curves, weight allocation heatmaps, and Markdown performance comparison teardown matrices.
+- Comprehensive unit test suite in `tests/test_regime_adaptive_week8.py` (5/5 passed).
+
+### Week 9+
 
 Not started in architecture terms:
 
-- regime-adaptive weighting (Week 8)
 - CVaR risk optimization (Week 9)
+- API, dashboard, and deployment layers (Weeks 10-12)
 
 
 ## Artifact Outputs
@@ -281,5 +286,15 @@ Current Week 7 regime engine writes:
 - `data/processed/week7/spx_regimes.png`
 - `data/processed/week7/transition_matrix.png`
 - `data/processed/week7/feature_profiles.png`
+
+Current Week 8 adaptive engine writes:
+
+- `data/processed/week8/factor_regime_ic_heatmap.png`
+- `data/processed/week8/regime_adaptive_weights.png`
+- `data/processed/week8/posterior_ic_evolution.png`
+- `data/processed/week8/dynamic_weight_allocation_heatmap.png`
+- `data/processed/week8/week8_composite_comparison.csv`
+- `data/processed/week8/week8_composite_comparison.md`
+
 
 

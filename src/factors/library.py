@@ -11,6 +11,7 @@ from joblib import Parallel, delayed
 
 from src.factors.base import BaseAlpha
 from src.factors.neutralization import winsorize_series, z_score_series, neutralize_factor_scores
+from src.data.repositories import FactorsRepository, FundamentalsRepository
 
 
 class PriceMomentum(BaseAlpha):
@@ -428,9 +429,8 @@ class MarketBeta(BaseAlpha):
         stock_rets = close_wide.pct_change(fill_method=None)
 
         # Load Fama-French market excess return (mkt_rf) and risk-free rate (rf)
-        query = "SELECT date, mkt_rf, rf FROM fama_french ORDER BY date"
         try:
-            ff_df = pd.read_sql(query, engine)
+            ff_df = FactorsRepository(engine).get_fama_french()
             ff_df["date"] = pd.to_datetime(ff_df["date"])
             ff_df = ff_df.set_index("date")
             mkt_rets = (ff_df["mkt_rf"] + ff_df["rf"]) / 100.0  # convert from pct to decimal
@@ -473,9 +473,8 @@ class IdiosyncraticVolatility(BaseAlpha):
         stock_rets = close_wide.pct_change(fill_method=None)
 
         # Load Market return
-        query = "SELECT date, mkt_rf, rf FROM fama_french ORDER BY date"
         try:
-            ff_df = pd.read_sql(query, engine)
+            ff_df = FactorsRepository(engine).get_fama_french()
             ff_df["date"] = pd.to_datetime(ff_df["date"])
             ff_df = ff_df.set_index("date")
             mkt_rets = (ff_df["mkt_rf"] + ff_df["rf"]) / 100.0
@@ -522,9 +521,8 @@ class EarningsSurpriseSUE(BaseAlpha):
         close_m = close_wide.ffill().resample("ME").last()
 
         # Load surprise data
-        query = "SELECT ticker, date, surprise_pct FROM earnings_calendar"
         try:
-            earn_df = pd.read_sql(query, engine)
+            earn_df = FundamentalsRepository(engine).get_earnings_calendar()
             earn_df["date"] = pd.to_datetime(earn_df["date"])
             earn_df = earn_df.dropna(subset=["surprise_pct"])
         except Exception:
@@ -561,9 +559,8 @@ class EarningsRevision(BaseAlpha):
         close_wide = prices_df["adj_close"].unstack("ticker").sort_index()
         close_m = close_wide.ffill().resample("ME").last()
 
-        query = "SELECT ticker, date, eps_estimate FROM earnings_calendar"
         try:
-            earn_df = pd.read_sql(query, engine)
+            earn_df = FundamentalsRepository(engine).get_earnings_calendar()
             earn_df["date"] = pd.to_datetime(earn_df["date"])
             earn_df = earn_df.dropna(subset=["eps_estimate"])
         except Exception:
@@ -601,9 +598,8 @@ class InsiderBuyingRatio(BaseAlpha):
 
         close_wide = prices_df["adj_close"].unstack("ticker").sort_index()
 
-        query = "SELECT ticker, date, shares, text FROM insider_transactions"
         try:
-            insider_df = pd.read_sql(query, engine)
+            insider_df = FundamentalsRepository(engine).get_insider_transactions()
             insider_df["date"] = pd.to_datetime(insider_df["date"])
         except Exception:
             return pd.Series(np.nan, index=close_wide.columns)
@@ -626,13 +622,17 @@ class InsiderBuyingRatio(BaseAlpha):
             sells = 0.0
 
             for _, row in ticker_trades.iterrows():
-                text_val = str(row["text"]).lower()
+                text_val = str(row.get("text", "")).lower()
                 shares_val = float(row["shares"]) if not pd.isna(row["shares"]) else 0.0
 
                 if "buy" in text_val or "purchase" in text_val:
-                    buys += shares_val
+                    buys += abs(shares_val)
                 elif "sale" in text_val or "sell" in text_val:
-                    sells += shares_val
+                    sells += abs(shares_val)
+                elif shares_val > 0:
+                    buys += shares_val
+                elif shares_val < 0:
+                    sells += abs(shares_val)
 
             if buys + sells > 0.0:
                 scores[ticker] = (buys - sells) / (buys + sells + 1e-5)
@@ -658,10 +658,10 @@ class YieldCurveSlopeBeta(BaseAlpha):
         close_wide = prices_df["adj_close"].unstack("ticker").sort_index()
         stock_rets = close_wide.pct_change(fill_method=None)
 
-        query = "SELECT date, value FROM macro WHERE series_name IN ('DGS10', 'DGS2') ORDER BY date"
         try:
-            macro_df = pd.read_sql(query, engine)
+            macro_df = FactorsRepository(engine).get_macro_series(series_names=["DGS10", "DGS2"])
             macro_df["date"] = pd.to_datetime(macro_df["date"])
+            macro_df = macro_df.drop_duplicates(subset=["date", "series_name"])
             pivot = macro_df.pivot(index="date", columns="series_name", values="value").ffill()
             slope = pivot["DGS10"] - pivot["DGS2"]
             slope_change = slope.diff(1)
@@ -701,10 +701,10 @@ class CreditSpreadBeta(BaseAlpha):
         close_wide = prices_df["adj_close"].unstack("ticker").sort_index()
         stock_rets = close_wide.pct_change(fill_method=None)
 
-        query = "SELECT date, value FROM macro WHERE series_name = 'BAMLH0A0HYM2' ORDER BY date"
         try:
-            macro_df = pd.read_sql(query, engine)
+            macro_df = FactorsRepository(engine).get_macro_series(series_names=["BAMLH0A0HYM2"])
             macro_df["date"] = pd.to_datetime(macro_df["date"])
+            macro_df = macro_df.drop_duplicates(subset=["date"])
             spread = macro_df.set_index("date")["value"].ffill()
             spread_change = spread.diff(1)
         except Exception:
@@ -743,10 +743,10 @@ class PMIMomentumBeta(BaseAlpha):
         close_wide = prices_df["adj_close"].unstack("ticker").sort_index()
         stock_rets = close_wide.pct_change(fill_method=None)
 
-        query = "SELECT date, value FROM macro WHERE series_name = 'NAPM' ORDER BY date"
         try:
-            macro_df = pd.read_sql(query, engine)
+            macro_df = FactorsRepository(engine).get_macro_series(series_names=["NAPM"])
             macro_df["date"] = pd.to_datetime(macro_df["date"])
+            macro_df = macro_df.drop_duplicates(subset=["date"])
             pmi = macro_df.set_index("date")["value"].ffill()
             # PMI momentum (3-month change approx, fallback to shorter for tests)
             shift_period = min(60, max(1, len(pmi) // 5))
@@ -814,8 +814,10 @@ class FactorLibrary:
         self.logger.info("Computing factors for date %s in child process", eval_date.date())
         records = []
         
-        # Dispose the connection pool to avoid multi-processing socket sharing issues
-        engine.dispose()
+        # Dispose the connection pool if provided to avoid multi-processing socket sharing issues
+        if engine is not None:
+            engine.dispose()
+
 
         for factor_name, factor_obj in self.registry.items():
             try:
