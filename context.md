@@ -4,7 +4,7 @@
 
 `Regime-Adaptive Multi-Factor Alpha Engine`
 
-This repository follows a 12-week quant research build plan. The codebase implements Weeks 1-8 scope refactored into an enterprise **4-Tier Architecture** (`Domain Models` → `Repositories` → `Services` → `Dataset Builders`) backed by **Neon PostgreSQL** via `psycopg` (v3).
+This repository follows a 12-week quant research build plan. The codebase implements Weeks 1-9 scope refactored into an institutional **4-Tier Architecture** (`Domain Models` → `Repositories` → `Services` → `Dataset Builders`) backed by **Neon PostgreSQL** via `psycopg` (v3).
 
 ## Objective of Current Build
 

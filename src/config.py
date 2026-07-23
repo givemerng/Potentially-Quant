@@ -97,6 +97,26 @@ class Week8Config(BaseModel):
     oos_start_date: str = Field(default="2010-01-01")
     oos_end_date: str = Field(default="2024-12-31")
     save_artifacts: bool = True
+    artifact_dir: str = "data/processed/week8"
+
+
+class Week9Config(BaseModel):
+    """Configuration for Week 9 Institutional Portfolio Construction, Risk Modeling & Analytics."""
+
+    covariance_model: str = Field(default="ledoit_wolf", pattern="^(ledoit_wolf|oas|sample|factor)$")
+    optimizer_type: str = Field(default="cvar", pattern="^(cvar|mean_variance|risk_parity)$")
+    alpha_confidence: float = Field(default=0.95, ge=0.5, le=0.999)
+    target_cvar: float = Field(default=0.20, ge=0.01, le=1.0)
+    max_position_size: float = Field(default=0.05, ge=0.001, le=1.0)
+    max_sector_exposure: float = Field(default=0.20, ge=0.01, le=1.0)
+    tc_penalty_lambda: float = Field(default=1.0, ge=0.0)
+    solver_chain: List[str] = Field(default_factory=lambda: ["CLARABEL", "OSQP", "ECOS"])
+    cov_lookback_days: int = Field(default=252, ge=30)
+    regularization_eps: float = Field(default=1e-6, ge=0.0)
+    save_artifacts: bool = True
+    artifact_dir: str = "data/processed/week9"
+
+
 class DatasetConfig(BaseModel):
     """Configuration for Machine Learning & Dataset Construction."""
 
@@ -262,6 +282,7 @@ class AppConfig(BaseModel):
     week6: Week6Config = Field(default_factory=Week6Config)
     week7: Week7Config = Field(default_factory=Week7Config)
     week8: Week8Config = Field(default_factory=Week8Config)
+    week9: Week9Config = Field(default_factory=Week9Config)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
 
     @field_validator("stock_universe", mode="before")

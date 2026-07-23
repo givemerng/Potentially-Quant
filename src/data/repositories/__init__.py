@@ -13,6 +13,8 @@ from src.data.repositories.fundamentals_repository import FundamentalsRepository
 from src.data.repositories.factors_repository import FactorsRepository
 from src.data.repositories.regimes_repository import RegimesRepository
 from src.data.repositories.portfolio_repository import PortfolioRepository
+from src.data.repositories.optimization_repository import OptimizationRepository
+from src.data.repositories.risk_repository import RiskRepository
 
 __all__ = [
     "IPricesRepository",
@@ -28,4 +30,6 @@ __all__ = [
     "FactorsRepository",
     "RegimesRepository",
     "PortfolioRepository",
+    "OptimizationRepository",
+    "RiskRepository",
 ]

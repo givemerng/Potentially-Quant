@@ -581,7 +581,63 @@ def main() -> None:
     except Exception as exc:
         logger.warning("Stage 8 pipeline execution skipped or hit non-fatal exception: %s", exc)
 
-    print("\nWeek 1 + Week 2 + Week 3 + Week 4 + Week 5 + Week 6 + Week 7 + Week 8 pipeline complete.")
+    # === STAGE 9: Week 9 - Institutional Portfolio Construction & Risk Optimization Engine ===
+    logger.info("Starting Stage 9: Week 9 - Institutional Portfolio Construction & Risk Engine...")
+    try:
+        from src.analytics.reporting.portfolio_report import PortfolioReporter
+
+        week9_config = config.week9.model_dump()
+        target_scores_df = comp_scores_df if 'comp_scores_df' in locals() and not comp_scores_df.empty else factor_scores_df
+
+        # Run walk-forward portfolio optimization
+        opt_weights_df, opt_logs_df, exp_record = portfolio_service.run_walk_forward_optimization(
+            composite_scores_df=target_scores_df,
+            returns_df=stored_returns.reset_index(),
+            metadata_df=metadata_df,
+            config=week9_config,
+            experiment_name="week9_cvar_optimization",
+        )
+
+        if not opt_weights_df.empty:
+            backtest_name = f"cvar_optimized_{config.week9.covariance_model}"
+            opt_summary = backtester.run(
+                factor_scores_df=opt_weights_df.rename(columns={"weight": "final_score"}),
+                returns_df=monthly_returns.reset_index(),
+                universe_membership_df=stored_membership,
+                backtest_name=backtest_name,
+            )
+
+            if opt_summary:
+                portfolio_service.save_backtest_results(
+                    results_df=pd.DataFrame([opt_summary.get("metrics", {})]),
+                    weights_df=opt_weights_df,
+                    trades_df=pd.DataFrame(),
+                    metrics_df=pd.DataFrame([opt_summary.get("metrics", {})]),
+                    backtest_name=backtest_name,
+                )
+
+                if config.week9.save_artifacts:
+                    w9_reporter = PortfolioReporter(output_dir=config.week9.artifact_dir, logger=logger)
+                    daily_rets = opt_summary.get("daily_returns", pd.Series(dtype=float))
+                    w9_reporter.generate_report(
+                        daily_returns=daily_rets,
+                        metrics=opt_summary.get("metrics", {}),
+                        weights_df=opt_weights_df,
+                        opt_logs_df=opt_logs_df,
+                        prefix="cvar_optimized",
+                    )
+                    logger.info("Week 9 artifacts saved under %s", config.week9.artifact_dir)
+
+                print("\n=== Week 9 - Institutional Portfolio Construction & Risk Optimization Summary ===")
+                print(f"Optimizer Type:       {config.week9.optimizer_type.upper()}")
+                print(f"Covariance Model:     {config.week9.covariance_model.upper()}")
+                print(f"Net Sharpe Ratio:     {opt_summary.get('metrics', {}).get('sharpe_ratio', 0.0):.2f}")
+                print(f"Max Drawdown:         {opt_summary.get('metrics', {}).get('max_drawdown', 0.0):.2%}")
+                print(f"Annual Turnover:      {opt_summary.get('metrics', {}).get('annualized_turnover', 0.0):.2%}")
+    except Exception as exc:
+        logger.warning("Stage 9 pipeline execution skipped or hit non-fatal exception: %s", exc)
+
+    print("\nWeek 1 + Week 2 + Week 3 + Week 4 + Week 5 + Week 6 + Week 7 + Week 8 + Week 9 pipeline complete.")
 
 
 if __name__ == "__main__":

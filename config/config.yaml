@@ -92,4 +92,18 @@ week8:
   save_artifacts: true
   artifact_dir: data/processed/week8
 
+week9:
+  covariance_model: ledoit_wolf
+  optimizer_type: cvar
+  alpha_confidence: 0.95
+  target_cvar: 0.20
+  max_position_size: 0.05
+  max_sector_exposure: 0.20
+  tc_penalty_lambda: 1.0
+  solver_chain: ["CLARABEL", "OSQP", "ECOS"]
+  cov_lookback_days: 252
+  regularization_eps: 0.000001
+  save_artifacts: true
+  artifact_dir: data/processed/week9
+
 

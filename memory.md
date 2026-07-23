@@ -4,7 +4,7 @@
 
 The repository is at:
 
-- Architecture: Enterprise 4-Tier Architecture (`Domain Models` → `Repositories` → `Services` → `Dataset Builders`) fully implemented
+- Architecture: Institutional 4-Tier Architecture (`Domain Models` → `Repositories` → `Services` → `Dataset Builders`) fully implemented
 - Database: Neon PostgreSQL integration via `psycopg` v3 driver, connection pooling, and 176,000+ rows populated
 - Week 1: implemented
 - Week 2: core workflow implemented
@@ -14,8 +14,9 @@ The repository is at:
 - Week 6: factor combination & ML integration implemented
 - Week 7: HMM market regime detection implemented
 - Week 8: regime-conditional factor analysis & adaptive weight model implemented
-- Test Suite: 129 / 129 unit tests passing
-- Week 9+: not started
+- Week 9: institutional portfolio construction, CVXPY Mean-CVaR optimization, pluggable risk models & analytics engine implemented
+- Test Suite: 139 / 139 unit tests passing
+- Week 10+: not started
 
 
 
