@@ -15,8 +15,9 @@ The repository is at:
 - Week 7: HMM market regime detection implemented
 - Week 8: regime-conditional factor analysis & adaptive weight model implemented
 - Week 9: institutional portfolio construction, CVXPY Mean-CVaR optimization, pluggable risk models & analytics engine implemented
-- Test Suite: 139 / 139 unit tests passing
-- Week 10+: not started
+- Week 10: production FastAPI REST API (v1), layered application services, task-based scheduler, pluggable cache, middleware & Docker platform implemented
+- Test Suite: 149 / 149 unit tests passing
+- Week 11+: not started
 
 
 

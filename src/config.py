@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import List
 
@@ -115,6 +116,21 @@ class Week9Config(BaseModel):
     regularization_eps: float = Field(default=1e-6, ge=0.0)
     save_artifacts: bool = True
     artifact_dir: str = "data/processed/week9"
+
+
+class Week10Config(BaseModel):
+    """Configuration for Week 10 Production FastAPI Backend, Cache, and Scheduler."""
+
+    api_title: str = Field(default="Regime-Adaptive Multi-Factor Alpha Engine API")
+    api_version: str = Field(default="1.0.0")
+    host: str = Field(default_factory=lambda: os.getenv("HOST", "0.0.0.0"))
+    port: int = Field(default_factory=lambda: int(os.getenv("PORT", "8000")))
+    cors_origins: List[str] = Field(default_factory=lambda: [o.strip() for o in os.getenv("CORS_ORIGINS", "*").split(",")])
+    redis_url: str = Field(default_factory=lambda: os.getenv("REDIS_URL", "redis://localhost:6379/0"))
+    cache_provider: str = Field(default_factory=lambda: os.getenv("CACHE_PROVIDER", "memory"), pattern="^(redis|memory)$")
+    cache_ttl_seconds: int = Field(default=86400, ge=60)
+    scheduler_cron: str = Field(default="30 16 * * 1-5")
+    timezone: str = Field(default="America/New_York")
 
 
 class DatasetConfig(BaseModel):
@@ -283,6 +299,7 @@ class AppConfig(BaseModel):
     week7: Week7Config = Field(default_factory=Week7Config)
     week8: Week8Config = Field(default_factory=Week8Config)
     week9: Week9Config = Field(default_factory=Week9Config)
+    week10: Week10Config = Field(default_factory=Week10Config)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
 
     @field_validator("stock_universe", mode="before")
